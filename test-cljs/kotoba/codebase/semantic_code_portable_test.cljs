@@ -2,17 +2,23 @@
   (:require [kotoba.codebase.semantic-code :as semantic]))
 
 (def expected-cid
-  "bafyreif5gkfsoabjcqgqwi3v7iordffqeidrswat3u4yfjcvydtn2u7cz4")
+  "bafyreidtfrwb5wpqubiti2cwqkgjb5d3daaqoppmnrznunr5qcpk343p3a")
 
+;; Regenerated at VC4 (ADR-kotoba-canonical-value-codec): literals now carry
+;; kotoba.value.v1 forms and the contract identity names the codec, so every
+;; definition CID moved. The first vector is a SET literal, which is exactly
+;; what the unsigned-byte ordering fix changed -- if the sort still leaked the
+;; platform's byte signedness, this vector would disagree between the two
+;; runtimes rather than merely having moved.
 (def parity-vectors
   [{:forms '[(def value #{:a :b :c})]
-    :expected {"value" "bafyreiblbefroocpif7wtm3ak7fyhhqehjquwzvcpfgvjsrihpv5usqmra"}}
+    :expected {"value" "bafyreifdhxz73mrgsk6bzpdt4dibpsu2hx7zzj65cgkxwtg7u53fcomrkm"}}
    {:forms '[(defn helper [x] (+ x 1)) (defn main [x] (helper x))]
-    :expected {"helper" "bafyreif5gkfsoabjcqgqwi3v7iordffqeidrswat3u4yfjcvydtn2u7cz4"
-               "main" "bafyreihoa23b2wpgnxw4phqcivz5agnllgct2cvyqkd4wycwyeyoeoikz4"}}
+    :expected {"helper" "bafyreidtfrwb5wpqubiti2cwqkgjb5d3daaqoppmnrznunr5qcpk343p3a"
+               "main" "bafyreidrkaz6vglwxm7hhrsylxrw6s5jgqzbf52z5k6c3hzgr7f5mwhrza"}}
    {:forms '[(defn even-a [x] (odd-a x)) (defn odd-a [x] (even-a x))]
-    :expected {"even-a" "bafyreidzwuhmcogikksjcnr2rplgurwdn2dnx273faypworu5kdklvlmue"
-               "odd-a" "bafyreifaw52gyls5dxo6octce3ca7srfxeynwycjyanujwqwnclj5evweq"}}])
+    :expected {"even-a" "bafyreickb3rmiqruhnyabrvzjznkv2pmib2nnth2ujswyjjz62cmmyaze4"
+               "odd-a" "bafyreie2qnf2tuc4vfj6urqivjyhglyfx73k4uxrxs4i3u6gxbrpfhvkxu"}}])
 
 (defn -main []
   (let [a (semantic/compile-definitions '[(defn f [x] (+ x 1))])

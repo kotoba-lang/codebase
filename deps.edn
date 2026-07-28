@@ -5,7 +5,17 @@
          :git/sha "58144e81ccdf7a82367085c66ea21ca84a1a7ddb"}
         io.github.kotoba-lang/io-multiformats
         {:git/url "https://github.com/kotoba-lang/io-multiformats.git"
-         :git/sha "310724803db65840f00d2d98d7887f2b6a512bd3"}}
+         :git/sha "310724803db65840f00d2d98d7887f2b6a512bd3"}
+        ;; kotoba.value.v1, the shared canonical VALUE codec
+        ;; (ADR-kotoba-canonical-value-codec, VC4): semantic-code's literal
+        ;; vocabulary is no longer its own. Only the codec is used -- io-ipld's
+        ;; node codec (ipld.core/encode) is NOT, and the cbor/multiformats pins
+        ;; above deliberately stay NEWER than io-ipld's own (they carry the
+        ;; truncated-input and unsigned-key-comparator fixes); io-ipld's suite
+        ;; is green against these newer pins.
+        io.github.kotoba-lang/io-ipld
+        {:git/url "https://github.com/kotoba-lang/io-ipld.git"
+         :git/sha "e08dc3b2ab705be292e388cd1ad136381544a041"}}
  :aliases
   {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
