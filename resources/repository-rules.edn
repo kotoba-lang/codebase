@@ -5,4 +5,5 @@
   :role :library
   :must-not [:compile :execute-components :grant-runtime-authority]
   :depends-on ["kotoba-lang/dag-cbor"
+               "kotoba-lang/io-ipld"
                "kotoba-lang/io-multiformats"]}}
