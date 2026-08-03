@@ -95,6 +95,22 @@
                         {:problem :codebase/corrupt-block :cid cid})))
       {:cid cid :bytes bytes :block block})))
 
+(defn block-cids
+  "Every block CID present locally.
+
+  Presence, not reachability: a block that no namespace selects is still here
+  and still valid, which is what makes a hash usable before -- or after -- any
+  name points at it."
+  [root]
+  (require-store! root)
+  (->> (.listFiles (file root "blocks"))
+       (keep (fn [^java.io.File f]
+               (let [name (.getName f)]
+                 (when (.endsWith name ".cbor")
+                   (subs name 0 (- (count name) (count ".cbor")))))))
+       sort
+       vec))
+
 (defn head [root namespace]
   (require-store! root)
   (let [target (head-file root namespace)]
