@@ -130,3 +130,15 @@
                (:problem (ex-data (try (evaluator/invoke root cid [2])
                                        (catch clojure.lang.ExceptionInfo e e)))))))
       (finally (delete-tree root)))))
+
+(deftest reports-fuel-left-after-the-call-not-before-it
+  (let [root (temp-store)]
+    (try
+      (store/initialize! root)
+      (let [cids (store-definitions!
+                  root '[(defn countdown [n] (if (zero? n) 0 (countdown (dec n))))])
+            evaluated (evaluator/evaluate root (get cids "countdown"))
+            invoked (evaluator/invoke root (get cids "countdown") [20])]
+        ;; Evaluating a `defn` only builds the closure; the work is in the call.
+        (is (< (:fuel-remaining invoked) (:fuel-remaining evaluated))))
+      (finally (delete-tree root)))))

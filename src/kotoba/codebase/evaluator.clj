@@ -255,7 +255,12 @@
    (let [fuel (volatile! fuel)]
      {:cid cid
       :value ((resolver root fuel max-call-depth) cid 0)
-      :fuel-remaining @fuel})))
+      :fuel-remaining @fuel
+      ;; The cell, not just a snapshot: evaluating a `defn` yields a CLOSURE,
+      ;; and the work of actually calling it happens after this returns. A
+      ;; caller that applies the closure and then reports the snapshot would
+      ;; report the fuel left before any of that work was done.
+      :fuel-cell fuel})))
 
 (defn definition-type
   "The semantic type block a definition or recursive member commits to."
@@ -271,19 +276,20 @@
   with no arguments, and only the type distinguishes them."
   ([root cid args] (invoke root cid args {}))
   ([root cid args opts]
-   (let [{:keys [value fuel-remaining]} (evaluate root cid opts)
+   (let [{:keys [value fuel-cell]} (evaluate root cid opts)
          type (definition-type root cid)
          function? (= "function" (get type "kind"))]
      (cond
        (not function?)
        (do (when (seq args)
              (fail! :codebase/not-callable {:cid cid :hint "definition is a value"}))
-           {:cid cid :value value :fuel-remaining fuel-remaining})
+           {:cid cid :value value :fuel-remaining @fuel-cell})
 
        :else
        (do (when-not (ifn? value)
              (fail! :codebase/not-callable {:cid cid}))
-           {:cid cid :value (apply value args) :fuel-remaining fuel-remaining})))))
+           (let [result (apply value args)]
+             {:cid cid :value result :fuel-remaining @fuel-cell}))))))
 
 (defn count-of-references
   "Definition CIDs BLOCK depends on, from its IR rather than its declared list.
