@@ -1,0 +1,210 @@
+(ns kotoba.codebase.typed-code-test
+  "Identity computed from checked KIR.
+
+  The input here is KIR, hand-written to the shape the compiler emits, because
+  that IS this namespace's contract -- it consumes the IR and never parses
+  source. The source-to-KIR half is covered where both the compiler and the
+  codebase are on the classpath."
+  (:require [clojure.test :refer [deftest is testing]]
+            [kotoba.codebase.authoring :as authoring]
+            [kotoba.codebase.store :as store]
+            [kotoba.codebase.typed-code :as typed]
+            [kotoba.codebase.typed-eval :as typed-eval]))
+
+(defn- temp-store []
+  (.toFile (java.nio.file.Files/createTempDirectory
+            "kotoba-typed-" (make-array java.nio.file.attribute.FileAttribute 0))))
+
+(defn- delete-tree [root]
+  (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f)))
+
+(defn- with-store [body-fn]
+  (let [root (temp-store)]
+    (try (store/initialize! root) (body-fn root)
+         (finally (delete-tree root)))))
+
+(defn- kir [functions & {:keys [schemas format] :or {format :kotoba.kir/v3}}]
+  {:format format
+   :exports (mapv :name functions)
+   :schemas schemas
+   :functions (vec functions)})
+
+(def double-fn
+  {:name 'double :params '[x] :param-types [:i64] :result :i64 :effects #{}
+   :body '(* x 2)})
+
+(def quadruple-fn
+  {:name 'quadruple :params '[x] :param-types [:i64] :result :i64 :effects #{}
+   :body '(double (double x))})
+
+(defn- store-all! [root compiled]
+  (doseq [[_ {:keys [cid block interface-cid interface-block group-cid group-block]}]
+          (:definitions compiled)]
+    (store/put-block! root interface-cid interface-block)
+    (when group-cid (store/put-block! root group-cid group-block))
+    (store/put-block! root cid block))
+  (into {} (map (fn [[name {:keys [cid]}]] [(str name) cid])) (:definitions compiled)))
+
+(deftest identity-is-independent-of-parameter-names
+  (let [a (typed/compile-module (kir [double-fn]))
+        b (typed/compile-module
+           (kir [{:name 'double :params '[value] :param-types [:i64] :result :i64
+                  :effects #{} :body '(* value 2)}]))]
+    (is (= (get-in a [:definitions 'double :cid])
+           (get-in b [:definitions 'double :cid])))))
+
+(deftest identity-is-independent-of-the-definitions-own-name
+  (let [a (typed/compile-module (kir [double-fn]))
+        b (typed/compile-module (kir [(assoc double-fn :name 'twice)]))]
+    (is (= (get-in a [:definitions 'double :cid])
+           (get-in b [:definitions 'twice :cid])))))
+
+(deftest a-changed-dependency-changes-every-dependent
+  (let [before (typed/compile-module (kir [double-fn quadruple-fn]))
+        after (typed/compile-module
+               (kir [(assoc double-fn :body '(* x 3)) quadruple-fn]))]
+    (is (not= (get-in before [:definitions 'double :cid])
+              (get-in after [:definitions 'double :cid])))
+    (testing "the caller's body is textually identical and its identity still moved"
+      (is (not= (get-in before [:definitions 'quadruple :cid])
+                (get-in after [:definitions 'quadruple :cid]))))))
+
+(deftest the-typed-interface-participates-in-identity
+  (let [i64 (typed/compile-module (kir [double-fn]))
+        bool (typed/compile-module (kir [(assoc double-fn :result :bool)]))
+        effectful (typed/compile-module (kir [(assoc double-fn :effects #{:log/write})]))]
+    (is (not= (get-in i64 [:definitions 'double :cid])
+              (get-in bool [:definitions 'double :cid]))
+        "a different result type is a different definition")
+    (is (not= (get-in i64 [:definitions 'double :cid])
+              (get-in effectful [:definitions 'double :cid]))
+        "a declared effect is part of what a definition is")))
+
+(deftest a-definition-links-only-the-schemas-it-reaches
+  (let [used {:point [:record [[:x :i64]]]}
+        compiled-a (typed/compile-module
+                    (kir [{:name 'f :params '[p] :param-types [[:ref :point]] :result :i64
+                           :effects #{} :body '(record-field-of [:ref :point] p :x)}]
+                         :schemas used))
+        compiled-b (typed/compile-module
+                    (kir [{:name 'f :params '[p] :param-types [[:ref :point]] :result :i64
+                           :effects #{} :body '(record-field-of [:ref :point] p :x)}]
+                         :schemas (assoc used :unrelated [:record [[:z :i64]]])))]
+    (is (= (get-in compiled-a [:definitions 'f :cid])
+           (get-in compiled-b [:definitions 'f :cid]))
+        "an unrelated schema elsewhere in the module must not move this identity")))
+
+(deftest an-unhandled-binding-form-fails-closed-instead-of-hashing-a-source-name
+  ;; `[:ref x]` is skipped as a type position, so a binder that reaches one
+  ;; survives normalization -- exactly the shape a sixth binding form would
+  ;; produce, and exactly what must not be hashed silently.
+  (is (= :typed-code/binder-not-normalized
+         (:problem (ex-data (try (typed/compile-module
+                                  (kir [{:name 'f :params '[x] :param-types [:i64]
+                                         :result :i64 :effects #{}
+                                         :body '(let [q x] [:ref q])}]))
+                                 (catch clojure.lang.ExceptionInfo e e)))))))
+
+(deftest runs-a-hydrated-closure-through-the-kir-oracle
+  (with-store
+    (fn [root]
+      (let [cids (store-all! root (typed/compile-module (kir [double-fn quadruple-fn])))]
+        (is (= 12 (:value (typed-eval/invoke root (get cids "quadruple") [3]))))
+        (testing "the dependency is reachable by hash with no name bound to it"
+          (is (= 8 (:value (typed-eval/invoke root (get cids "double") [4])))))))))
+
+(deftest the-assembled-module-contains-no-source-names
+  (with-store
+    (fn [root]
+      (let [cids (store-all! root (typed/compile-module (kir [double-fn quadruple-fn])))
+            {:keys [kir]} (typed-eval/assemble root (get cids "quadruple"))
+            names (set (map :name (:functions kir)))]
+        (is (= 2 (count names)))
+        (is (every? #(re-matches #"kotoba_def_b[a-z0-9]+" (str %)) names))
+        (is (not-any? #{'double 'quadruple} names))))))
+
+(deftest evaluates-a-self-recursive-group
+  (with-store
+    (fn [root]
+      (let [cids (store-all!
+                  root (typed/compile-module
+                        (kir [{:name 'countdown :params '[n] :param-types [:i64] :result :i64
+                               :effects #{}
+                               :body '(if (= n 0) 0 (countdown (- n 1)))}])))]
+        (is (= 0 (:value (typed-eval/invoke root (get cids "countdown") [5]))))))))
+
+(deftest evaluates-a-mutually-recursive-group
+  (with-store
+    (fn [root]
+      (let [cids (store-all!
+                  root (typed/compile-module
+                        (kir [{:name 'even-n :params '[n] :param-types [:i64] :result :i64
+                               :effects #{} :body '(if (= n 0) 1 (odd-n (- n 1)))}
+                              {:name 'odd-n :params '[n] :param-types [:i64] :result :i64
+                               :effects #{} :body '(if (= n 0) 0 (even-n (- n 1)))}])))]
+        (is (= 1 (:value (typed-eval/invoke root (get cids "even-n") [4]))))
+        (is (= 0 (:value (typed-eval/invoke root (get cids "odd-n") [4]))))))))
+
+(deftest a-missing-dependency-fails-closed
+  (with-store
+    (fn [root]
+      (let [compiled (typed/compile-module (kir [double-fn quadruple-fn]))
+            {:keys [cid block interface-cid interface-block]}
+            (get-in compiled [:definitions 'quadruple])]
+        (store/put-block! root interface-cid interface-block)
+        (store/put-block! root cid block)
+        (is (= :codebase/block-not-found
+               (:problem (ex-data (try (typed-eval/invoke root cid [3])
+                                       (catch clojure.lang.ExceptionInfo e e))))))))))
+
+(deftest a-capability-call-without-a-dispatcher-is-denied-not-skipped
+  (with-store
+    (fn [root]
+      (let [cids (store-all!
+                  root (typed/compile-module
+                        (kir [{:name 'emit :params '[x] :param-types [:i64] :result :i64
+                               :effects #{:log/write}
+                               :body '(typed-cap-call 9 :i64 :i64 x)}])))
+            outcome (try (typed-eval/invoke root (get cids "emit") [1])
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :capability-denied (or (:trap outcome) (:kotoba.trap/kind outcome)
+                                      (:problem outcome) outcome))
+            (str "expected a denial, got " (pr-str outcome)))))))
+
+(deftest a-dispatcher-may-be-injected-and-is-the-only-way-effects-happen
+  (with-store
+    (fn [root]
+      (let [cids (store-all!
+                  root (typed/compile-module
+                        (kir [{:name 'emit :params '[x] :param-types [:i64] :result :i64
+                               :effects #{:log/write}
+                               :body '(typed-cap-call 9 :i64 :i64 x)}])))
+            seen (atom [])
+            result (typed-eval/invoke
+                    root (get cids "emit") [7]
+                    {:typed-cap-call (fn [id _ _ request]
+                                       (swap! seen conj [id request])
+                                       request)})]
+        (is (= 7 (:value result)))
+        (is (= #{:log/write} (:effects result)))
+        (is (= 1 (count @seen)))))))
+
+(deftest an-update-propagates-across-typed-definitions-too
+  (with-store
+    (fn [root]
+      (let [plan-for (fn [functions]
+                       (authoring/plan-with
+                        root "demo"
+                        (fn [seeded]
+                          (typed/compile-module (kir functions) {:definitions seeded}))))]
+        (authoring/commit! root (plan-for [double-fn quadruple-fn]))
+        (let [before (:bindings (store/namespace-view root (store/head root "demo")))
+              ;; Only `double` is re-authored; `quadruple` is not in this module
+              ;; at all, so its dependency CID has to be rewritten rather than
+              ;; recompiled.
+              after (authoring/commit! root (plan-for [(assoc double-fn :body '(* x 3))]))]
+          (is (= :updated (get-in after [:definitions "double" :status])))
+          (is (= :propagated (get-in after [:propagated "quadruple" :status])))
+          (is (not= (get before "quadruple") (get-in after [:bindings "quadruple"])))
+          (is (= 18 (:value (typed-eval/invoke root (get-in after [:bindings "quadruple"])
+                                               [2])))))))))
