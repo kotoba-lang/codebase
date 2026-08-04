@@ -1,5 +1,5 @@
 (ns kotoba.codebase.store-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as codebase]))
 
@@ -94,5 +94,24 @@
       (is (= {"artifact-cid" (cid "artifact")} (codebase/cache-get root descriptor)))
       (is (nil? (codebase/cache-key (assoc descriptor :effects [:graph/read]))))
       (is (nil? (codebase/cache-put! root (assoc descriptor :effects [:graph/read]) {:ignored true})))
+      (finally
+        (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest artifacts-are-verified-immutable-and-separate-from-blocks
+  (let [root (temp-store)]
+    (try
+      (codebase/initialize! root)
+      (let [bytes (byte-array (map unchecked-byte [0 97 115 109 1 0 0 0]))
+            cid (codebase/put-artifact! root bytes)]
+        (is (string? cid))
+        (is (= (seq bytes) (seq (codebase/get-artifact root cid))))
+        (is (= cid (codebase/put-artifact! root bytes))
+            "the same bytes are the same artifact, not a second copy")
+        (is (nil? (codebase/get-artifact root "bafkreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")))
+        (testing "a corrupted artifact is refused rather than returned"
+          (spit (java.io.File. (java.io.File. root "artifacts") cid) "tampered")
+          (is (= :codebase/corrupt-artifact
+                 (:problem (ex-data (try (codebase/get-artifact root cid)
+                                         (catch clojure.lang.ExceptionInfo e e))))))))
       (finally
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
