@@ -40,16 +40,15 @@
     block))
 
 (defn- links-of
-  "What to fetch next: dependencies, the recursive group, and the type block.
+  "What to fetch next: every link in the block that could be a stored block.
 
-  `profile` and `hashContract` are deliberately NOT followed. They are derived
-  identities -- the CID of a contract STRING, not of a stored block -- so
-  treating them as fetchable would make every hydration report itself
-  incomplete for two blocks that were never meant to exist."
+  Enumerating `dependencies` and `type` by name was not enough and could not
+  be: hydrating from a NAMESPACE COMMIT -- which is what following a published
+  namespace does -- fetched exactly one block and stopped, because a commit
+  links its parents and bindings and neither was on the list. `ir/block-links`
+  reads the links that are present instead of the ones a reader remembered."
   [block]
-  (vec (distinct (concat (ir/outbound-cids block)
-                         (when-let [type (get block "type")]
-                           [(ir/link->cid type)])))))
+  (ir/block-links block))
 
 (defn contract-identities
   "The profile and hash-contract identities BLOCK commits to.
