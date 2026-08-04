@@ -19,6 +19,21 @@ execute components, serve network traffic, or grant runtime authority.
 | `render` | projecting a stored definition back to readable source (`view`) |
 | `names` | name / hash / abbreviation lookup, dependents, dependencies |
 | `fetch` | bounded, verified hydration of a closure from an injected transport |
+| `typed-code` | definition identity computed from the compiler's checked KIR |
+| `typed-eval` | executing that KIR through the language oracle, hydrated by CID |
+
+Two identity layers exist and they are not interchangeable. `semantic-code`
+hashes an IR this repository normalizes for itself; `typed-code` hashes the
+**checked KIR** the compiler produces and the backends consume, and binds the
+typed interface (parameter types, result, declared effects) alongside the body.
+Prefer `typed-code` for anything that will also be compiled: it is the layer
+where what a definition IS and what gets executed are the same object, and its
+language coverage is the compiler's rather than a hand-maintained subset.
+
+Alpha-normalization in `typed-code` is verified rather than assumed. KIR has
+five binding forms, and a sixth added later would silently leave a
+source-chosen name inside a hash — so a binder that survives renaming fails the
+compile closed instead.
 
 Three properties hold by construction and are covered by tests:
 

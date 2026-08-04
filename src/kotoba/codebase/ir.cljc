@@ -143,6 +143,13 @@
   (let [rewritten (-> block
                       (cond-> (contains? block "ir")
                         (update "ir" rewrite-node substitutions))
+                      ;; `body` is the KIR-derived block's expression field, as
+                      ;; `ir` is the surface one. Both identity layers put
+                      ;; their reference links inside their own field, and a
+                      ;; substitution that rewrote only one of them would
+                      ;; leave the other pointing at a superseded definition.
+                      (cond-> (contains? block "body")
+                        (update "body" rewrite-node substitutions))
                       (cond-> (contains? block "members")
                         (update "members" rewrite-node substitutions))
                       (rewrite-dependency-list substitutions)

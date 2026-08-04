@@ -38,10 +38,18 @@
     {:head nil :bindings {}}))
 
 (defn- staged-blocks
-  "Every block one compiled definition needs in the store, dependencies first."
-  [{:keys [cid block type-cid type-block group-cid group-block]}]
+  "Every block one compiled definition needs in the store, dependencies first.
+
+  Two shapes are accepted because two identity layers produce them: the
+  surface `semantic-code` block carries a `type`, and the KIR-derived
+  `typed-code` block carries an `interface`. Everything downstream of here --
+  classification, propagation, commit -- is identical for both, which is the
+  point of keeping them one plan."
+  [{:keys [cid block type-cid type-block interface-cid interface-block
+           group-cid group-block]}]
   (cond-> []
     type-cid (conj [type-cid type-block])
+    interface-cid (conj [interface-cid interface-block])
     group-cid (conj [group-cid group-block])
     true (conj [cid block])))
 
@@ -107,16 +115,22 @@
                  (into produced (map (fn [[_ {:keys [cid block]}]] [cid block])) rewrites)
                  (inc round)))))))
 
-(defn plan
-  "Compile FORMS against NAMESPACE's selected names and describe the result.
+(defn plan-with
+  "Describe what COMPILE-FN's definitions would do to NAMESPACE.
+
+  COMPILE-FN receives the name -> CID map the namespace currently selects and
+  returns `{:definitions {name {:cid :block ...}}}`. Taking a function rather
+  than source forms is what lets one planner serve both identity layers: the
+  caller decides whether a definition is hashed from the surface IR or from
+  checked KIR, and everything after that -- what counts as added, what an
+  update carries along, how the head advances -- is the same either way.
 
   Nothing is written: the plan is data, so a caller can show what an update
-  would do -- including which dependents it would carry along -- before
-  choosing to commit it."
-  [root namespace forms]
+  would do before choosing to commit it."
+  [root namespace compile-fn]
   (let [{:keys [head bindings]} (current-bindings root namespace)
         seeded (into {} (map (fn [[name cid]] [(symbol name) cid])) bindings)
-        compiled (semantic/compile-definitions forms {:definitions seeded})
+        compiled (compile-fn seeded)
         results (:definitions compiled)
         classified
         (into (sorted-map)
@@ -158,6 +172,12 @@
      :changed? (or (seq blocks)
                    (some #(not= :unchanged (:status (val %))) classified)
                    false)}))
+
+(defn plan
+  "Plan an update whose definitions are hashed from the surface semantic IR."
+  [root namespace forms]
+  (plan-with root namespace
+             #(semantic/compile-definitions forms {:definitions %})))
 
 (defn commit!
   "Persist PLAN's blocks and CAS the namespace head onto the resulting commit.

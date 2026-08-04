@@ -13,6 +13,12 @@
         ;; above deliberately stay NEWER than io-ipld's own (they carry the
         ;; truncated-input and unsigned-key-comparator fixes); io-ipld's suite
         ;; is green against these newer pins.
+        ;; The compiler's checked KIR is the definition identity and the
+        ;; execution oracle (typed-code / typed-eval). This repo consumes the
+        ;; IR; it does not parse source or compile.
+        io.github.kotoba-lang/kotoba-kir
+        {:git/url "https://github.com/kotoba-lang/kotoba-kir.git"
+         :git/sha "73acba38357e701918b24e71b52f6cdda4a22e41"}
         io.github.kotoba-lang/io-ipld
         {:git/url "https://github.com/kotoba-lang/io-ipld.git"
          :git/sha "e08dc3b2ab705be292e388cd1ad136381544a041"}}
