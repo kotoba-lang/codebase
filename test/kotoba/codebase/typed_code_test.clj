@@ -7,6 +7,7 @@
   codebase are on the classpath."
   (:require [clojure.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
+            [kotoba.codebase.render :as render]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.typed-code :as typed]
             [kotoba.codebase.typed-eval :as typed-eval]))
@@ -208,3 +209,28 @@
           (is (not= (get before "quadruple") (get-in after [:bindings "quadruple"])))
           (is (= 18 (:value (typed-eval/invoke root (get-in after [:bindings "quadruple"])
                                                [2])))))))))
+
+(deftest a-typed-definition-views-as-its-checked-ir-with-names-restored
+  (with-store
+    (fn [root]
+      (let [cids (store-all! root (typed/compile-module (kir [double-fn quadruple-fn])))
+            names {(get cids "double") "double" (get cids "quadruple") "quadruple"}
+            viewed (render/view root (get cids "quadruple") {:names names})]
+        (is (= "quadruple" (:name viewed)))
+        (is (= '(double (double k0)) (:form viewed))
+            "the dependency renders as the name this reader selects")
+        (testing "and as a hash for a reader who has no name for it"
+          (let [anonymous (render/view root (get cids "quadruple") {:name "q"})]
+            (is (re-find #"^#b" (str (first (:form anonymous)))))))))))
+
+(deftest a-recursive-typed-definition-views-with-its-own-name
+  (with-store
+    (fn [root]
+      (let [cids (store-all!
+                  root (typed/compile-module
+                        (kir [{:name 'countdown :params '[n] :param-types [:i64] :result :i64
+                               :effects #{}
+                               :body '(if (= n 0) 0 (countdown (- n 1)))}])))
+            viewed (render/view root (get cids "countdown")
+                                {:names {(get cids "countdown") "countdown"}})]
+        (is (= '(if (= k0 0) 0 (countdown (- k0 1))) (:form viewed)))))))
