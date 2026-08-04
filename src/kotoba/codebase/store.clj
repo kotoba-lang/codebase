@@ -8,7 +8,8 @@
             [kotoba.codebase.ir :as ir]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [kotoba.codebase.semantic-code :as semantic])
+            [kotoba.codebase.semantic-code :as semantic]
+            [multiformats.core :as mf])
   (:import [java.nio.channels FileChannel]
            [java.nio.charset StandardCharsets]
            [java.nio.file Files StandardCopyOption StandardOpenOption]
@@ -28,7 +29,8 @@
 (defn initialize!
   "Create the durable layout. Safe to call repeatedly."
   [root]
-  (doseq [dir [(file root "blocks") (file root "heads") (file root "cache")]]
+  (doseq [dir [(file root "blocks") (file root "heads") (file root "cache")
+               (file root "artifacts")]]
     (.mkdirs dir))
   (let [marker (file root "STORE.edn")]
     (when-not (.exists marker)
@@ -94,6 +96,47 @@
         (throw (ex-info "stored semantic block failed CID verification"
                         {:problem :codebase/corrupt-block :cid cid})))
       {:cid cid :bytes bytes :block block})))
+
+(defn- artifact-file [root cid] (file root "artifacts" (str cid)))
+
+(defn put-artifact!
+  "Persist compiled OUTPUT bytes under their own raw CIDv1 and return it.
+
+  Artifacts are raw bytes, not DAG-CBOR blocks, and are kept in their own
+  directory for that reason: `put-block!` verifies by re-encoding canonical
+  CBOR, which an emitted `.wasm` is not and must not be forced into. The
+  verification that matters is the same one either way -- the bytes hash to the
+  name they are filed under."
+  [root ^bytes output]
+  (require-store! root)
+  (let [cid (mf/cidv1-raw output)
+        target (artifact-file root cid)]
+    (.mkdirs (.getParentFile target))
+    (if (.exists target)
+      (when-not (= (seq output) (seq (Files/readAllBytes (.toPath target))))
+        (throw (ex-info "existing artifact CID has different bytes"
+                        {:problem :codebase/immutable-artifact-conflict :cid cid})))
+      (let [tmp (Files/createTempFile (.toPath (file root "artifacts")) "artifact-" ".tmp"
+                                      (make-array java.nio.file.attribute.FileAttribute 0))]
+        (try
+          (Files/write tmp output (make-array java.nio.file.OpenOption 0))
+          (Files/move tmp (.toPath target)
+                      (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE]))
+          (catch java.nio.file.FileAlreadyExistsException _ nil)
+          (finally (Files/deleteIfExists tmp)))))
+    cid))
+
+(defn get-artifact
+  "Read an artifact and re-derive its CID before returning it."
+  [root cid]
+  (require-store! root)
+  (let [target (artifact-file root cid)]
+    (when (.isFile target)
+      (let [bytes (Files/readAllBytes (.toPath target))]
+        (when-not (= cid (mf/cidv1-raw bytes))
+          (throw (ex-info "stored artifact failed CID verification"
+                          {:problem :codebase/corrupt-artifact :cid cid})))
+        bytes))))
 
 (defn block-cids
   "Every block CID present locally.
