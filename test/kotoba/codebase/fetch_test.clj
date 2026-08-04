@@ -3,7 +3,6 @@
             [clojure.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
-            [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.fetch :as fetch]
             [kotoba.codebase.store :as store]))
 
