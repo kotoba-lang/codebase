@@ -8,8 +8,7 @@
             [kotoba.codebase.ir :as ir]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [kotoba.codebase.semantic-code :as semantic]
-            [multiformats.core :as mf])
+            [kotoba.codebase.semantic-code :as semantic])
   (:import [java.nio.channels FileChannel]
            [java.nio.charset StandardCharsets]
            [java.nio.file Files StandardCopyOption StandardOpenOption]
