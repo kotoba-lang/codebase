@@ -15,7 +15,9 @@
   (:require [ipld.value :as value]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.semantic-code :as semantic]
-            [kotoba.codebase.store :as store]))
+            [kotoba.codebase.store :as store]
+            [kotoba.codebase.typed-code :as typed]
+            [kotoba.codebase.typed-eval :as typed-eval]))
 
 (defn- fail! [problem data]
   (throw (ex-info (name problem) (assoc data :problem problem))))
@@ -111,6 +113,46 @@
       (list* 'defn (symbol name) (second rendered) (drop 2 rendered)))
     (list 'def (symbol name) (render-node ir context))))
 
+(defn typed-view
+  "Render a KIR-derived definition as its checked IR, with names restored.
+
+  Deliberately NOT surface source. The stored object IS the checked KIR --
+  desugaring, elaboration and type checking already happened -- so printing the
+  `.kotoba` someone typed would mean reconstructing a form that no longer
+  exists and implying it round-trips. What a reader can honestly be shown is
+  the IR, with the two things content addressing removed put back: dependency
+  hashes rendered as the names THIS reader selects, and the recursive group's
+  members named."
+  [root cid {:keys [names name] :or {names {}}}]
+  (let [block (store/get-block root cid)
+        display (or name (get names cid) (short-cid cid))
+        name-of (fn [dependency] (symbol (or (get names dependency) (short-cid dependency))))]
+    (condp = (get block "schema")
+      typed/schema
+      {:cid cid :name display
+       :form (typed-eval/decode-view-form
+              (get block "body")
+              {:name-of name-of
+               :member-name (fn [index] (symbol (str display "-member-" index)))})}
+
+      typed/member-schema
+      (let [group-cid (ir/link->cid (get block "group"))
+            group (store/get-block root group-cid)
+            index (get block "index")
+            member (nth (get group "members") index)]
+        {:cid cid :name display :group group-cid
+         :form (typed-eval/decode-view-form
+                (get member "body")
+                {:name-of name-of
+                 ;; A self-call renders as the definition's own name; a sibling
+                 ;; in the same group has no name of its own here, and saying so
+                 ;; is better than borrowing one.
+                 :member-name (fn [i] (if (= i index)
+                                        (symbol display)
+                                        (symbol (str display "-member-" i))))})})
+
+      (fail! :codebase/not-viewable-block {:cid cid :schema (get block "schema")}))))
+
 (defn view
   "Render the definition at CID as a top-level form.
 
@@ -123,6 +165,9 @@
          name (or name (get names cid) (short-cid cid))
          context {:binders [] :names names}]
      (condp = (ir/block-kind block)
+       typed/schema (typed-view root cid {:names names :name name})
+       typed/member-schema (typed-view root cid {:names names :name name})
+
        semantic/schema
        {:cid cid :name name :form (definition-form name (get block "ir") context)}
 

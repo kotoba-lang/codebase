@@ -74,6 +74,20 @@
 ;; Deterministic and derived only from hashes: two independently assembled
 ;; modules over the same closure produce byte-identical function names.
 
+(defn decode-view-form
+  "Decode a canonical body for READING rather than for execution.
+
+  Execution resolves a reference by emitting the callee as another function in
+  the assembled module; a reader wants the name it knows instead. Same decoder,
+  different resolver -- which is only possible because the reference is a link
+  in the data rather than a name baked into it."
+  [form {:keys [name-of member-name]}]
+  (decode-form form
+               (fn [{:keys [kind cid index]}]
+                 (case kind
+                   :definition (name-of cid)
+                   :group-member (member-name index)))))
+
 (defn definition-symbol [cid] (symbol (str "kotoba_def_" cid)))
 (defn member-symbol [group-cid index] (symbol (str "kotoba_grp_" group-cid "_" index)))
 
