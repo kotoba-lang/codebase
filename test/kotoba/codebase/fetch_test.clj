@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
+            [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.fetch :as fetch]
             [kotoba.codebase.store :as store]))
 
@@ -87,4 +88,23 @@
                                                        {:fetch-block (serving remote)
                                                         :max-blocks 1})
                                        (catch clojure.lang.ExceptionInfo e e)))))))
+      (finally (delete-tree remote) (delete-tree local)))))
+
+(deftest hydrating-from-a-namespace-commit-brings-the-whole-namespace
+  ;; The shape a follower actually uses: it is handed a HEAD, not a definition
+  ;; CID. A traversal that only knew `dependencies` and `type` fetched the
+  ;; commit and stopped, and every definition it named stayed missing.
+  (let [remote (temp-store) local (temp-store)]
+    (try
+      (store/initialize! remote)
+      (store/initialize! local)
+      (let [committed (authoring/update-namespace!
+                       remote "scratch" '[(defn double [x] (* x 2))
+                                          (defn quadruple [x] (double (double x)))])
+            head (store/head remote "scratch")
+            result (fetch/hydrate! local [head] {:fetch-block (serving remote)})]
+        (is (true? (:complete? result)))
+        (is (< 1 (count (:fetched result))))
+        (is (= 12 (:value (evaluator/invoke local (get-in committed [:bindings "quadruple"])
+                                            [3])))))
       (finally (delete-tree remote) (delete-tree local)))))

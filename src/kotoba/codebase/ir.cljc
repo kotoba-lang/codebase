@@ -79,6 +79,36 @@
   [block]
   (mapv link->cid (get block "dependencies" [])))
 
+(def derived-identity-fields
+  "Fields whose links are CIDs of contract STRINGS, not of stored blocks.
+
+  A traversal that follows them reports two blocks missing on every hydration,
+  forever, because they were never meant to exist."
+  #{"profile" "hashContract"})
+
+(defn block-links
+  "Every CID a block links to that could be a stored block.
+
+  Deliberately structural rather than schema-aware. The schema-aware version
+  this replaces had to be taught each block kind, and was wrong twice at once:
+  it did not know a namespace commit links its parents and bindings -- so
+  hydrating from a head fetched exactly one block and stopped -- and it looked
+  for a recursive group's members under a field name the group does not have.
+  Enumerating the links that are actually present cannot fall behind a new
+  block kind."
+  [block]
+  (letfn [(walk [node acc]
+            (cond
+              (cid-link? node) (conj acc (link->cid node))
+              (map? node) (reduce (fn [acc [key value]]
+                                    (if (contains? derived-identity-fields key)
+                                      acc
+                                      (walk value acc)))
+                                  acc node)
+              (sequential? node) (reduce (fn [acc value] (walk value acc)) acc node)
+              :else acc))]
+    (vec (distinct (walk block [])))))
+
 (defn outbound-cids
   "Every CID this block depends on for its MEANING.
 

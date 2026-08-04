@@ -5,6 +5,7 @@
   immutable canonical DAG-CBOR bytes keyed by CID; mutable namespace heads are
   small, atomically replaced files guarded by a process lock."
   (:require [cbor.core :as cbor]
+            [kotoba.codebase.ir :as ir]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [kotoba.codebase.semantic-code :as semantic]
@@ -143,29 +144,7 @@
                                                  StandardCopyOption/REPLACE_EXISTING]))
             (finally (Files/deleteIfExists tmp))))))))
 
-(defn- cid-link->cid [link]
-  (let [bytes (:value link)]
-    (when-not (and (= 42 (:n link)) (pos? (alength ^bytes bytes))
-                   (zero? (aget ^bytes bytes 0)))
-      (throw (ex-info "invalid IPLD CID link in namespace commit"
-                      {:problem :codebase/invalid-cid-link})))
-    (str "b" (mf/base32 (java.util.Arrays/copyOfRange ^bytes bytes 1 (alength ^bytes bytes))))))
-
-(defn- block-links [value]
-  (letfn [(links [v]
-            (cond
-              (and (map? v) (= 42 (:n v))) [(cid-link->cid v)]
-              (sequential? v) (mapcat links v)
-              :else []))]
-    (case (get value "schema")
-      "kotoba.namespace.v1" (concat (links (get value "parents"))
-                                     (links (vals (get value "bindings"))))
-      "kotoba.semantic-definition.v1" (concat (links (get value "type"))
-                                               (links (get value "dependencies")))
-      "kotoba.recursive-member.v1" (concat (links (get value "group"))
-                                             (links (get value "type")))
-      "kotoba.recursive-group.v1" (links (get value "definitions"))
-      [])))
+(defn- cid-link->cid [link] (ir/link->cid link))
 
 (defn export-closure
   "Return canonical bytes for the reachable blocks available in this local
@@ -191,7 +170,7 @@
           (if (:missing? found)
             (recur (subvec pending 1) (conj seen cid) blocks (conj missing cid))
             (let [{:keys [bytes block]} found
-                  next-cids (vec (block-links block))]
+                  next-cids (ir/block-links block)]
             (recur (into (subvec pending 1) next-cids) (conj seen cid)
                    (conj blocks {:cid cid :bytes bytes}) missing)))))
       {:roots (vec roots) :blocks blocks :missing (vec (sort missing))})))
