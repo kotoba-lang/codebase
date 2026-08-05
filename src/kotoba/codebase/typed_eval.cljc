@@ -38,13 +38,47 @@
 
 (declare decode-form)
 
+;; ---------------------------------------------------------------------------
+;; Scalar decoding across the platform split
+;;
+;; The canonical form carries a float as the INTEGER BIT PATTERN, so decoding
+;; is a reinterpretation rather than a conversion and every step has to be
+;; exact. `Float/intBitsToFloat` and `Double/longBitsToDouble` have no cljs
+;; equivalent, but `DataView` is exactly the same operation: write the bits,
+;; read the float.
+;;
+;; `kotoba.kir` has `f64-from-bits`, and it is NOT reusable here -- it is a KIR
+;; OPCODE name the interpreter dispatches on, not a function this namespace can
+;; call. Worth stating because reaching for it is the obvious first move.
+;;
+;; An integer becomes a `bigint` on the JVM and a `js/BigInt` on cljs, which is
+;; what `kotoba.kir` itself uses for i64 on that side -- its `cljs-i64`
+;; docstring records why (plain cljs numbers are doubles and lose precision
+;; above 2^53; cljs bitwise ops truncate to int32).
+
+(defn- ->i64 [payload]
+  #?(:clj (bigint payload)
+     :cljs (js/BigInt payload)))
+
+(defn- f32-from-bits [payload]
+  #?(:clj (Float/intBitsToFloat (int payload))
+     :cljs (let [view (js/DataView. (js/ArrayBuffer. 4))]
+             (.setInt32 view 0 (js/Number payload))
+             (.getFloat32 view 0))))
+
+(defn- f64-from-bits [payload]
+  #?(:clj (Double/longBitsToDouble (long payload))
+     :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
+             (.setBigInt64 view 0 (js/BigInt payload))
+             (.getFloat64 view 0))))
+
 (defn- decode-tagged [[tag payload] resolve-reference]
   (case tag
     "nil" nil
     "bool" payload
-    "int" (bigint payload)
-    "f32" (Float/intBitsToFloat (int payload))
-    "f64" (Double/longBitsToDouble (long payload))
+    "int" (->i64 payload)
+    "f32" (f32-from-bits payload)
+    "f64" (f64-from-bits payload)
     "str" payload
     "kw" (decode-keyword payload)
     "sym" (symbol payload)

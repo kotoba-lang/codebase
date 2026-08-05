@@ -136,9 +136,15 @@
         (recur (subvec pending 1) seen blocks missing)
 
         :else
+        ;; `ExceptionInfo` is a class on the JVM and an ordinary `js/Error`
+        ;; subclass on cljs, so the catch clause cannot be written once. The
+        ;; DISCRIMINATION is the same on both sides and stays in one place:
+        ;; only `:codebase/block-not-found` is absorbed, everything else
+        ;; rethrows, because swallowing an unrelated failure here would turn a
+        ;; corrupt block into a silently missing one.
         (let [found (try
                       (verified-block-bytes root cid)
-                      (catch clojure.lang.ExceptionInfo error
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
                         (if (= :codebase/block-not-found (:problem (ex-data error)))
                           {:missing? true}
                           (throw error))))]
