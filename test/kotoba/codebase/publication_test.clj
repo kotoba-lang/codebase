@@ -159,3 +159,47 @@
                                                   :head "bafyreiaaaa" :sequence 0
                                                   :publisher "did:key:zSomethingElse"})]
     (is (= (ed/did-key-from-seed (seed 3)) (get record "publisher")))))
+
+(deftest two-heads-at-one-sequence-are-named-as-a-fork-not-a-stale-offer
+  (testing "the only observation that accuses the publisher must not be
+            collapsed into the one that accuses the transport"
+    (with-stores
+      (fn [publisher follower]
+        (let [first-record (publish-definitions! publisher "demo" '[(defn f [x] x)] (seed 1))
+              did (ed/did-key-from-seed (seed 1))]
+          (mirror-blocks! publisher follower (:head first-record))
+          (publication/accept-head! follower (:record first-record) {:publisher did})
+          (authoring/update-namespace! publisher "demo" '[(defn f [x] (* x 2))])
+          (let [second-record (publication/publish! publisher "demo" (seed 1))]
+            (mirror-blocks! publisher follower (:head second-record))
+            (publication/accept-head! follower (:record second-record))
+            ;; The pinned key signs a DIFFERENT head at a sequence it already
+            ;; signed. Nothing is forged and nothing is stale: this is
+            ;; equivocation, and only the publisher could have produced it.
+            (let [equivocation (publication/sign-record
+                                (seed 1)
+                                {:namespace "demo"
+                                 :head (:head first-record)
+                                 :sequence (:sequence second-record)
+                                 :previous (:record-cid first-record)})
+                  problem (ex-data (try (publication/accept-head! follower equivocation)
+                                        (catch clojure.lang.ExceptionInfo e e)))]
+              (is (= :publication/forked-head (:problem problem)))
+              (is (= (:head second-record) (:held problem))
+                  "the follower keeps the head it already had")
+              (is (= (:head first-record) (:offered problem)))
+              (is (= (:sequence second-record) (:sequence problem)))
+              (is (= did (:publisher problem))
+                  "the evidence names the key that signed both"))))))))
+
+(deftest a-replay-of-the-identical-record-is-still-only-stale
+  (testing "fork detection must not reclassify the ordinary case"
+    (with-stores
+      (fn [publisher follower]
+        (let [record (publish-definitions! publisher "demo" '[(defn f [x] x)] (seed 1))
+              did (ed/did-key-from-seed (seed 1))]
+          (mirror-blocks! publisher follower (:head record))
+          (publication/accept-head! follower (:record record) {:publisher did})
+          (is (= :publication/sequence-not-advanced
+                 (:problem (ex-data (try (publication/accept-head! follower (:record record))
+                                         (catch clojure.lang.ExceptionInfo e e)))))))))))

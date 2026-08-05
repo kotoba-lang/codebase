@@ -7,6 +7,7 @@
   than resolved to whichever candidate sorts first, because the whole point of
   the hash is that it names exactly one thing."
   (:require [clojure.string :as str]
+            [kotoba.codebase.index :as index]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.store :as store]))
 
@@ -28,6 +29,26 @@
   (try (store/get-block root cid) true
        (catch clojure.lang.ExceptionInfo _ false)))
 
+(defn- searchable-cids
+  "The CIDs a `#`-abbreviation may resolve against, and the scope that was
+  actually searched.
+
+  A local directory can list every block it holds, which is the widest and
+  best answer: a hash is usable before any name points at it. A store with no
+  directory to read cannot, and since ADR-2608580000 S1 it says so instead of
+  reporting an empty codebase. Rather than let abbreviation resolution simply
+  stop working there, fall back to the definitions the namespace reaches — and
+  RETURN the scope, so a caller that got `:namespace-closure` knows the search
+  was narrower than `:store` and a miss is not proof of absence."
+  [root bindings]
+  (try
+    {:cids (store/block-cids root) :scope :store}
+    (catch clojure.lang.ExceptionInfo error
+      (if (= :codebase/enumeration-unsupported (:problem (ex-data error)))
+        {:cids (vec (:definitions (index/scan root (vals bindings))))
+         :scope :namespace-closure}
+        (throw error)))))
+
 (defn resolve-token
   "Resolve a user-supplied TOKEN to one definition CID.
 
@@ -46,14 +67,17 @@
         (when (< (count prefix) min-short-hash-length)
           (fail! :codebase/hash-abbreviation-too-short
                  {:token token :minimum min-short-hash-length}))
-        (let [candidates (filterv #(str/starts-with? % prefix) (store/block-cids root))]
+        (let [{:keys [cids scope]} (searchable-cids root bindings)
+              candidates (filterv #(str/starts-with? % prefix) cids)]
           (case (count candidates)
-            0 (fail! :codebase/hash-not-found {:token token})
+            0 (fail! :codebase/hash-not-found {:token token :scope scope})
             1 (let [cid (first candidates)]
                 {:cid cid
                  :name (some (fn [[name bound]] (when (= bound cid) name)) bindings)
-                 :resolved-by :short-hash})
-            (fail! :codebase/ambiguous-hash {:token token :candidates candidates}))))
+                 :resolved-by :short-hash
+                 :scope scope})
+            (fail! :codebase/ambiguous-hash
+                   {:token token :candidates candidates :scope scope}))))
 
       (present? root token)
       {:cid token
@@ -77,29 +101,23 @@
           (filter (fn [[name _]] (str/includes? (str/lower-case name) query)))
           (bindings-of root namespace))))
 
-(defn- closure-of
-  "Definition CIDs reachable from CID, including CID itself."
-  [root cid]
-  (loop [pending [cid] seen #{}]
-    (if-let [current (first pending)]
-      (if (contains? seen current)
-        (recur (subvec pending 1) seen)
-        (let [block (try (store/get-block root current)
-                         (catch clojure.lang.ExceptionInfo _ nil))]
-          (recur (into (subvec pending 1) (when block (ir/outbound-cids block)))
-                 (conj seen current))))
-      seen)))
-
 (defn dependents
   "Names in NAMESPACE whose definition transitively depends on CID.
 
   This is the set an update to CID would carry along, so it answers `what does
-  changing this affect` before the change is made."
+  changing this affect` before the change is made.
+
+  One pass over the namespace's closure, then a walk over edges already in
+  memory. The previous shape asked the store the same question once per
+  binding, which re-read every shared dependency once per dependent — see
+  `kotoba.codebase.index`."
   [root namespace cid]
-  (vec (sort (keep (fn [[name bound]]
-                     (when (and (not= bound cid) (contains? (closure-of root bound) cid))
-                       name))
-                   (bindings-of root namespace)))))
+  (let [bindings (bindings-of root namespace)
+        affected (index/depending-on (index/scan root (vals bindings)) cid)]
+    (vec (sort (keep (fn [[name bound]]
+                       (when (and (not= bound cid) (contains? affected bound))
+                         name))
+                     bindings)))))
 
 (defn dependencies
   "Definition CIDs the definition at CID depends on, with any selected names."

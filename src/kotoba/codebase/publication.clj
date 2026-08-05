@@ -19,7 +19,14 @@
     an attacker who cannot forge a signature can still re-serve an old signed
     record and quietly revert a follower;
   - a record is only accepted once its commit is present LOCALLY and verified,
-    so a signature can never make a follower point at bytes it does not have.
+    so a signature can never make a follower point at bytes it does not have;
+  - two DIFFERENT heads at the same sequence are reported as what they are: a
+    fork. Rejecting them as `not advanced` — which is what this did until
+    2026-08-05 — throws away the only observation in the whole protocol that
+    accuses the PUBLISHER rather than the transport. A re-served identical
+    record is a duplicate and means nothing; a different head at a sequence
+    already signed means the pinned key signed two histories, and no amount of
+    signature checking can make that benign. See `forked?`.
 
   Revocation is `retire!`: the pin is removed and re-following requires an
   explicit new DID. There is no revocation broadcast, because there is nobody
@@ -104,6 +111,22 @@
 
 (defn record-cid [record]
   (semantic/block-cid record))
+
+(defn forked?
+  "Do these two verified records claim the same sequence for different heads?
+
+  This is the one thing a follower can observe that indicts the publisher. A
+  sequence that fails to advance is ordinary: a mirror re-serving the record
+  the follower already has looks exactly like that, and nothing is wrong. But
+  the SAME sequence carrying a DIFFERENT head cannot be produced by a replay,
+  a stale cache, or a lying host — the records are signed, so only the pinned
+  key could have made both. Collapsing the two cases into one error, which is
+  what `sequence-not-advanced` did alone, discards the evidence at exactly the
+  moment it appears."
+  [a b]
+  (boolean (and a b
+                (= (:sequence a) (:sequence b))
+                (not= (:head a) (:head b)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Follow state
@@ -193,6 +216,17 @@
      (when-not (= pinned (:publisher verified))
        (fail! :publication/publisher-mismatch
               {:namespace namespace :pinned pinned :offered (:publisher verified)}))
+     (when (forked? current verified)
+       ;; Reported before the sequence check, and separately from it: this is
+       ;; not a stale offer, it is proof the pinned key signed two histories.
+       ;; The follower keeps the head it already had -- there is no rule for
+       ;; choosing between two things the publisher equally asserted.
+       (fail! :publication/forked-head
+              {:namespace namespace :publisher (:publisher verified)
+               :sequence (:sequence verified)
+               :held (:head current) :offered (:head verified)
+               :held-record-cid (:record-cid current)
+               :offered-record-cid (record-cid record)}))
      (when (and current (<= (:sequence verified) (long (:sequence current))))
        (fail! :publication/sequence-not-advanced
               {:namespace namespace :have (:sequence current)
