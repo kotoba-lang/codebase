@@ -1,46 +1,31 @@
 (ns kotoba.codebase.store
-  "Local, verified persistence for the C1–C4 semantic-code records.
+  "Verified persistence for the C1–C4 semantic-code records.
 
-  This is deliberately a local C5 store, not a network protocol: blocks are
-  immutable canonical DAG-CBOR bytes keyed by CID; mutable namespace heads are
-  small, atomically replaced files guarded by a process lock."
+  Blocks are immutable canonical DAG-CBOR bytes keyed by CID; a namespace head
+  is the one mutable pointer, moved only by compare-and-set. WHERE those bytes
+  live is `kotoba.codebase.backend`'s question, not this namespace's: `root`
+  may be a filesystem path (the layout this repository has always written) or
+  any backend value, including one over a `kotobase.storage` provider.
+
+  What did NOT move to the backend is every integrity rule. A block still has
+  to re-encode to canonical CBOR under its CID here, an artifact still has to
+  hash to its raw CID here, and a head still has to lose a race here. A store
+  that checked those for us would be a store we would have to trust."
   (:require [cbor.core :as cbor]
+            [kotoba.codebase.backend :as backend]
             [kotoba.codebase.ir :as ir]
-            [clojure.edn :as edn]
-            [clojure.java.io :as io]
             [kotoba.codebase.semantic-code :as semantic]
-            [multiformats.core :as mf])
-  (:import [java.nio.channels FileChannel]
-           [java.nio.charset StandardCharsets]
-           [java.nio.file Files StandardCopyOption StandardOpenOption]
-           [java.util Base64]))
+            [multiformats.core :as mf]))
 
-(def store-schema "kotoba.semantic-codebase-store.v1")
-
-(defn- file [root & parts] (apply io/file root parts))
-(defn- block-file [root cid] (file root "blocks" (str cid ".cbor")))
-(defn- head-file [root namespace]
-  (file root "heads"
-        (str (.encodeToString (.withoutPadding (Base64/getUrlEncoder))
-                              (.getBytes ^String namespace StandardCharsets/UTF_8))
-             ".head")))
-(defn- cache-file [root key] (file root "cache" (str key ".cbor")))
+(def store-schema backend/store-schema)
 
 (defn initialize!
   "Create the durable layout. Safe to call repeatedly."
   [root]
-  (doseq [dir [(file root "blocks") (file root "heads") (file root "cache")
-               (file root "artifacts")]]
-    (.mkdirs dir))
-  (let [marker (file root "STORE.edn")]
-    (when-not (.exists marker)
-      (spit marker (pr-str {:schema store-schema}))))
-  {:root (.getCanonicalPath (io/file root)) :schema store-schema})
+  (backend/-initialize! (backend/coerce root)))
 
 (defn- initialized? [root]
-  (= store-schema
-     (try (:schema (edn/read-string (slurp (file root "STORE.edn"))))
-          (catch Exception _ nil))))
+  (backend/-initialized? (backend/coerce root)))
 
 (defn- require-store! [root]
   (when-not (initialized? root)
@@ -55,49 +40,34 @@
   (when-not (:ok? (semantic/verify-block cid block))
     (throw (ex-info "refusing block whose CID does not match its content"
                     {:problem :codebase/cid-mismatch :cid cid})))
-  (let [target (block-file root cid)
-        bytes (cbor/encode block)]
-    (if (.exists target)
-      (when-not (= (seq bytes) (seq (Files/readAllBytes (.toPath target))))
-        (throw (ex-info "existing CID has different bytes"
-                        {:problem :codebase/immutable-block-conflict :cid cid})))
-      (let [tmp (Files/createTempFile (.toPath (file root "blocks")) "block-" ".tmp"
-                                      (make-array java.nio.file.attribute.FileAttribute 0))]
-        (try
-          (Files/write tmp bytes (make-array java.nio.file.OpenOption 0))
-          (Files/move tmp (.toPath target)
-                      (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE]))
-          (catch java.nio.file.FileAlreadyExistsException _
-            ;; Another writer won; its immutable bytes are checked on the next read.
-            nil)
-          (finally (Files/deleteIfExists tmp)))))
-    cid))
+  (when (= :conflict (backend/-put-bytes! (backend/coerce root) :block cid
+                                          (cbor/encode block)))
+    (throw (ex-info "existing CID has different bytes"
+                    {:problem :codebase/immutable-block-conflict :cid cid})))
+  cid)
+
+(defn- stored-block-bytes [root cid]
+  (or (backend/-get-bytes (backend/coerce root) :block cid)
+      (throw (ex-info "semantic block not found"
+                      {:problem :codebase/block-not-found :cid cid}))))
 
 (defn get-block
   "Read a block and re-derive its CID before returning it."
   [root cid]
   (require-store! root)
-  (let [target (block-file root cid)]
-    (when-not (.isFile target)
-      (throw (ex-info "semantic block not found" {:problem :codebase/block-not-found :cid cid})))
-    (let [block (cbor/decode (Files/readAllBytes (.toPath target)))]
-      (when-not (:ok? (semantic/verify-block cid block))
-        (throw (ex-info "stored semantic block failed CID verification"
-                        {:problem :codebase/corrupt-block :cid cid})))
-      block)))
+  (let [block (cbor/decode (stored-block-bytes root cid))]
+    (when-not (:ok? (semantic/verify-block cid block))
+      (throw (ex-info "stored semantic block failed CID verification"
+                      {:problem :codebase/corrupt-block :cid cid})))
+    block))
 
 (defn- verified-block-bytes [root cid]
-  (let [target (block-file root cid)]
-    (when-not (.isFile target)
-      (throw (ex-info "semantic block not found" {:problem :codebase/block-not-found :cid cid})))
-    (let [bytes (Files/readAllBytes (.toPath target))
-          block (cbor/decode bytes)]
-      (when-not (:ok? (semantic/verify-block cid block))
-        (throw (ex-info "stored semantic block failed CID verification"
-                        {:problem :codebase/corrupt-block :cid cid})))
-      {:cid cid :bytes bytes :block block})))
-
-(defn- artifact-file [root cid] (file root "artifacts" (str cid)))
+  (let [bytes (stored-block-bytes root cid)
+        block (cbor/decode bytes)]
+    (when-not (:ok? (semantic/verify-block cid block))
+      (throw (ex-info "stored semantic block failed CID verification"
+                      {:problem :codebase/corrupt-block :cid cid})))
+    {:cid cid :bytes bytes :block block}))
 
 (defn put-artifact!
   "Persist compiled OUTPUT bytes under their own raw CIDv1 and return it.
@@ -109,82 +79,45 @@
   name they are filed under."
   [root ^bytes output]
   (require-store! root)
-  (let [cid (mf/cidv1-raw output)
-        target (artifact-file root cid)]
-    (.mkdirs (.getParentFile target))
-    (if (.exists target)
-      (when-not (= (seq output) (seq (Files/readAllBytes (.toPath target))))
-        (throw (ex-info "existing artifact CID has different bytes"
-                        {:problem :codebase/immutable-artifact-conflict :cid cid})))
-      (let [tmp (Files/createTempFile (.toPath (file root "artifacts")) "artifact-" ".tmp"
-                                      (make-array java.nio.file.attribute.FileAttribute 0))]
-        (try
-          (Files/write tmp output (make-array java.nio.file.OpenOption 0))
-          (Files/move tmp (.toPath target)
-                      (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE]))
-          (catch java.nio.file.FileAlreadyExistsException _ nil)
-          (finally (Files/deleteIfExists tmp)))))
+  (let [cid (mf/cidv1-raw output)]
+    (when (= :conflict (backend/-put-bytes! (backend/coerce root) :artifact cid output))
+      (throw (ex-info "existing artifact CID has different bytes"
+                      {:problem :codebase/immutable-artifact-conflict :cid cid})))
     cid))
 
 (defn get-artifact
   "Read an artifact and re-derive its CID before returning it."
   [root cid]
   (require-store! root)
-  (let [target (artifact-file root cid)]
-    (when (.isFile target)
-      (let [bytes (Files/readAllBytes (.toPath target))]
-        (when-not (= cid (mf/cidv1-raw bytes))
-          (throw (ex-info "stored artifact failed CID verification"
-                          {:problem :codebase/corrupt-artifact :cid cid})))
-        bytes))))
+  (when-let [bytes (backend/-get-bytes (backend/coerce root) :artifact cid)]
+    (when-not (= cid (mf/cidv1-raw bytes))
+      (throw (ex-info "stored artifact failed CID verification"
+                      {:problem :codebase/corrupt-artifact :cid cid})))
+    bytes))
 
 (defn block-cids
   "Every block CID present locally.
 
   Presence, not reachability: a block that no namespace selects is still here
   and still valid, which is what makes a hash usable before -- or after -- any
-  name points at it."
+  name points at it.
+
+  Enumeration is a property of a local layout, not of content addressing: a
+  backend with no directory to read refuses this rather than answering nothing."
   [root]
   (require-store! root)
-  (->> (.listFiles (file root "blocks"))
-       (keep (fn [^java.io.File f]
-               (let [name (.getName f)]
-                 (when (.endsWith name ".cbor")
-                   (subs name 0 (- (count name) (count ".cbor")))))))
-       sort
-       vec))
+  (backend/-list-keys (backend/coerce root) :block))
 
 (defn head [root namespace]
   (require-store! root)
-  (let [target (head-file root namespace)]
-    (when (.isFile target)
-      (let [cid (edn/read-string (slurp target))]
-        (when-not (string? cid)
-          (throw (ex-info "invalid namespace head" {:problem :codebase/invalid-head
-                                                     :namespace namespace})))
-        cid))))
+  (backend/-read-head (backend/coerce root) namespace))
 
 (defn- replace-head! [root namespace expected next-cid]
-  (let [lock-path (.toPath (file root "heads" ".lock"))
-        target (.toPath (head-file root namespace))]
-    (with-open [channel (FileChannel/open lock-path
-                                          (into-array StandardOpenOption
-                                                      [StandardOpenOption/CREATE StandardOpenOption/WRITE]))
-                _lock (.lock channel)]
-      (let [actual (head root namespace)]
-        (when-not (= expected actual)
-          (throw (ex-info "namespace head changed"
-                          {:problem :codebase/head-conflict :namespace namespace
-                           :expected expected :actual actual})))
-        (let [tmp (Files/createTempFile (.getParent target) "head-" ".tmp"
-                                        (make-array java.nio.file.attribute.FileAttribute 0))]
-          (try
-            (Files/write tmp (.getBytes (pr-str next-cid) StandardCharsets/UTF_8)
-                         (make-array java.nio.file.OpenOption 0))
-            (Files/move tmp target (into-array StandardCopyOption
-                                                [StandardCopyOption/ATOMIC_MOVE
-                                                 StandardCopyOption/REPLACE_EXISTING]))
-            (finally (Files/deleteIfExists tmp))))))))
+  (let [result (backend/-swap-head! (backend/coerce root) namespace expected next-cid)]
+    (when-not (:ok? result)
+      (throw (ex-info "namespace head changed"
+                      {:problem :codebase/head-conflict :namespace namespace
+                       :expected expected :actual (:actual result)})))))
 
 (defn- cid-link->cid [link] (ir/link->cid link))
 
@@ -280,15 +213,12 @@
   [root descriptor result]
   (require-store! root)
   (when-let [key (cache-key descriptor)]
-    (let [target (cache-file root key)
-          entry {"schema" "kotoba.semantic-cache-entry.v1" "version" 1
-                 "descriptor" (cache-descriptor descriptor) "result" result}
-          bytes (cbor/encode entry)]
-      (if (.exists target)
-        (when-not (= (seq bytes) (seq (Files/readAllBytes (.toPath target))))
-          (throw (ex-info "cache key has conflicting result"
-                          {:problem :codebase/cache-conflict :key key})))
-        (Files/write (.toPath target) bytes (make-array java.nio.file.OpenOption 0)))
+    (let [entry {"schema" "kotoba.semantic-cache-entry.v1" "version" 1
+                 "descriptor" (cache-descriptor descriptor) "result" result}]
+      (when (= :conflict (backend/-put-bytes! (backend/coerce root) :cache key
+                                              (cbor/encode entry)))
+        (throw (ex-info "cache key has conflicting result"
+                        {:problem :codebase/cache-conflict :key key})))
       key)))
 
 (defn cache-get
@@ -297,11 +227,10 @@
   [root descriptor]
   (require-store! root)
   (when-let [key (cache-key descriptor)]
-    (let [target (cache-file root key)]
-      (when (.isFile target)
-        (let [entry (cbor/decode (Files/readAllBytes (.toPath target)))]
-          (when (= (cache-descriptor descriptor) (get entry "descriptor"))
-            (get entry "result")))))))
+    (when-let [bytes (backend/-get-bytes (backend/coerce root) :cache key)]
+      (let [entry (cbor/decode bytes)]
+        (when (= (cache-descriptor descriptor) (get entry "descriptor"))
+          (get entry "result"))))))
 
 (defn namespace-view
   "Decode and verify a namespace commit into ordinary CID strings."

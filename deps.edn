@@ -27,7 +27,17 @@
          :git/sha "73acba38357e701918b24e71b52f6cdda4a22e41"}
         io.github.kotoba-lang/io-ipld
         {:git/url "https://github.com/kotoba-lang/io-ipld.git"
-         :git/sha "e08dc3b2ab705be292e388cd1ad136381544a041"}}
+         :git/sha "e08dc3b2ab705be292e388cd1ad136381544a041"}
+        ;; The provider-neutral block/ref contract the rest of the fleet already
+        ;; speaks (ADR-2608580000 D2). It carries ZERO runtime dependencies --
+        ;; `kotobase.storage.object-id` assembles base32/multihash/CIDv1 itself
+        ;; precisely so it can sit under every provider -- so taking it does not
+        ;; drag a storage SDK into the definition plane. `backend/kotobase` is
+        ;; the only namespace here that requires it; the filesystem layout stays
+        ;; dependency-free and remains the default.
+        io.github.kotoba-lang/kotobase-storage
+        {:git/url "https://github.com/kotoba-lang/kotobase-storage.git"
+         :git/sha "e7f2218cc687c300f4031f9700ec0d0d542849ec"}}
  :aliases
   {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
