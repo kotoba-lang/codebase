@@ -17,7 +17,8 @@
   Evaluation here is pure by construction: the capability intrinsics are
   rejected rather than dispatched, so a stored definition cannot acquire
   authority merely by being reachable."
-  (:require [ipld.value :as value]
+  (:require [clojure.string :as str]
+            [ipld.value :as value]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]))
@@ -80,7 +81,7 @@
 (def ^:private intrinsic-prefix "kotoba.intrinsic/v1/")
 
 (defn- intrinsic [id]
-  (when-not (and (string? id) (.startsWith ^String id intrinsic-prefix))
+  (when-not (and (string? id) (str/starts-with? id intrinsic-prefix))
     (fail! :codebase/unknown-intrinsic {:id id}))
   (let [sym (subs id (count intrinsic-prefix))]
     (or (get intrinsic-fns sym)

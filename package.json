@@ -2,7 +2,8 @@
   "name": "kotoba-codebase",
   "private": true,
   "scripts": {
-    "test:semantic-cljs": "NODE_PATH=$PWD/node_modules clojure -M:semantic-cljs"
+    "test:semantic-cljs": "NODE_PATH=$PWD/node_modules clojure -M:semantic-cljs",
+    "test:eval-cljs": "NODE_PATH=$PWD/node_modules clojure -M:eval-cljs"
   },
   "dependencies": {
     "@noble/hashes": "2.0.1"
