@@ -11,7 +11,10 @@
   implemented in ClojureScript, which is the thing the backend seam exists to
   make possible — `backend/coerce` refuses a path on this platform rather than
   reaching for `java.nio`."
-  (:require [kotoba.codebase.backend :as backend]
+  (:require [ipld.core :as ipld]
+            [ipld.value :as value]
+            [kotoba.codebase.actor :as actor]
+            [kotoba.codebase.backend :as backend]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]
@@ -155,6 +158,36 @@
                       (catch :default _ true))]
     (check! "coerce refuses a path on cljs" true refused?)))
 
+(defn- the-actor-loader-runs-on-this-side []
+  ;; superproject ADR-2608059000: `code` is a CID that RUNS, and the runtime it
+  ;; has to run on is this one. The JVM suite covers the same seam; a seam that
+  ;; only works there is the exact gap step 2 existed to close.
+  (let [root (memory-store)
+        blocks (atom {})]
+    (store/initialize! root)
+    (let [cids (store-definitions!
+                root '[(defn credit [state message] (if state (+ state 1) 1))])
+          invoke (actor/invoke-fn
+                  {:codebase root
+                   :get-fn (fn [cid] (get @blocks cid))
+                   :put! (fn [cid bytes] (swap! blocks assoc cid bytes))})
+          call (fn [state] (invoke {:address "alice" :caller "alice"
+                                    :code (get cids "credit") :state state
+                                    :method "credit" :args []}))
+          first-call (call nil)
+          second-call (call (:state first-call))]
+      (check! "an actor with no state starts" 1
+              (value/decode-value (get @blocks (:state first-call))))
+      (check! "and the next call sees what it wrote" 2
+              (value/decode-value (get @blocks (:state second-call))))
+      ;; Totality is the property a consensus machine cannot check for itself:
+      ;; a replica that throws here produces no root while its peers produce one.
+      (check! "an absent definition refuses rather than throwing"
+              {:refused :no-code}
+              (invoke {:address "alice" :caller "alice"
+                       :code (ipld/cid (ipld/encode {"absent" true}))
+                       :state nil :method "credit" :args []})))))
+
 (defn -main []
   (let [cid (evaluates-from-its-cid-alone)]
     (hydrates-transitive-dependencies-by-cid)
@@ -163,4 +196,5 @@
     (scalar-decoding-is-exact)
     (typed-eval-loads)
     (coerce-refuses-a-path)
+    (the-actor-loader-runs-on-this-side)
     (println "codebase CLJS evaluation: ran a definition from its CID alone —" cid)))
