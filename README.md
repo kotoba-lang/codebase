@@ -21,6 +21,7 @@ execute components, serve network traffic, or grant runtime authority.
 | `fetch` | bounded, verified hydration of a closure from an injected transport |
 | `typed-code` | definition identity computed from the compiler's checked KIR |
 | `typed-eval` | executing that KIR through the language oracle, hydrated by CID |
+| `value-runtime` | bounded run-local Handle ↔ ValueCID resolution over canonical immutable values |
 
 Two identity layers exist and they are not interchangeable. `semantic-code`
 hashes an IR this repository normalizes for itself; `typed-code` hashes the
@@ -53,6 +54,19 @@ Three properties hold by construction and are covered by tests:
 Names are a lookup layer, not identity. A rename changes the namespace commit
 and no definition CID; an ambiguous hash abbreviation is rejected rather than
 resolved to whichever candidate sorts first.
+
+Values use the same separation at runtime: `ValueCID` is a portable logical
+address, `Handle` is a run-local bounded slot, and `Cap` remains authority.
+`value-runtime` interns or hydrates canonical `kotoba.value.v1` blocks, rejects
+forged handles, never reuses a released handle, and keeps runtime collection
+separate from persistent CAS retention. It is the reference host kernel; Wasm
+and native callback ABI adoption is tracked separately and must preserve this
+contract rather than expose CIDs on the hot path.
+
+`value-runtime-abi` fixes the shared backend boundary as five synchronous
+operations over canonical bytes, CID text, and scalar handles. Wasm
+typed-`externref` imports and native context callbacks are transports for this
+ABI; they may not reinterpret the bytes or derive authority from a CID.
 
 ## Test
 
