@@ -4,6 +4,7 @@
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.fetch :as fetch]
+            [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]))
 
 (defn- temp-store []
@@ -106,4 +107,24 @@
         (is (< 1 (count (:fetched result))))
         (is (= 12 (:value (evaluator/invoke local (get-in committed [:bindings "quadruple"])
                                             [3])))))
+      (finally (delete-tree remote) (delete-tree local)))))
+
+(deftest hydrates-a-release-manifest-and-its-raw-wasm-artifact
+  (let [remote (temp-store) local (temp-store)]
+    (try
+      (doseq [root [remote local]] (store/initialize! root))
+      (let [wasm (byte-array (map unchecked-byte [0 97 115 109 1 0 0 0]))
+            artifact (store/put-artifact! remote wasm)
+            manifest {"schema" "kotoba.library-release.v1"
+                      "version" 1
+                      "artifact" (semantic/cid-link artifact)}
+            root-cid (semantic/block-cid manifest)]
+        (store/put-block! remote root-cid manifest)
+        (let [source (fn [cid]
+                       (or (store/get-artifact remote cid)
+                           (try (cbor/encode (store/get-block remote cid))
+                                (catch clojure.lang.ExceptionInfo _ nil))))
+              result (fetch/hydrate! local [root-cid] {:fetch-block source})]
+          (is (:complete? result))
+          (is (= (seq wasm) (seq (store/get-artifact local artifact))))))
       (finally (delete-tree remote) (delete-tree local)))))

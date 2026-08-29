@@ -95,6 +95,19 @@
                       {:problem :codebase/corrupt-artifact :cid cid})))
     bytes))
 
+(defn raw-cid?
+  "Whether CID names a raw IPLD block rather than a DAG-CBOR block.
+
+  Release manifests link executable bytes with ordinary IPLD links.  The
+  codec, not the schema that happened to contain the link, decides which
+  verified store category owns the bytes."
+  [cid]
+  (try
+    (let [bytes (mf/cid->bytes cid)]
+      (= mf/codec-raw (bit-and 0xff #?(:clj (aget ^bytes bytes 1)
+                                       :cljs (aget bytes 1)))))
+    (catch #?(:clj Exception :cljs :default) _ false)))
+
 (defn block-cids
   "Every block CID present locally.
 
@@ -129,11 +142,18 @@
   as `:missing`; callers decide whether those are required for their protocol."
   [root roots]
   (require-store! root)
-  (loop [pending (vec roots) seen #{} blocks [] missing #{}]
+  (loop [pending (vec roots) seen #{} blocks [] artifacts [] missing #{}]
     (if-let [cid (first pending)]
       (cond
         (contains? seen cid)
-        (recur (subvec pending 1) seen blocks missing)
+        (recur (subvec pending 1) seen blocks artifacts missing)
+
+        (raw-cid? cid)
+        (if-let [bytes (get-artifact root cid)]
+          (recur (subvec pending 1) (conj seen cid) blocks
+                 (conj artifacts {:cid cid :bytes bytes}) missing)
+          (recur (subvec pending 1) (conj seen cid) blocks artifacts
+                 (conj missing cid)))
 
         :else
         ;; `ExceptionInfo` is a class on the JVM and an ordinary `js/Error`
@@ -149,24 +169,36 @@
                           {:missing? true}
                           (throw error))))]
           (if (:missing? found)
-            (recur (subvec pending 1) (conj seen cid) blocks (conj missing cid))
+            (recur (subvec pending 1) (conj seen cid) blocks artifacts
+                   (conj missing cid))
             (let [{:keys [bytes block]} found
                   next-cids (ir/block-links block)]
             (recur (into (subvec pending 1) next-cids) (conj seen cid)
-                   (conj blocks {:cid cid :bytes bytes}) missing)))))
-      {:roots (vec roots) :blocks blocks :missing (vec (sort missing))})))
+                   (conj blocks {:cid cid :bytes bytes}) artifacts missing)))))
+      {:roots (vec roots) :blocks blocks :artifacts artifacts
+       :missing (vec (sort missing))})))
 
 (defn import-closure!
   "Verify every received canonical block before persisting it.  Returns the
   imported CIDs; no remote bytes are trusted by filename or claimed CID."
-  [root {:keys [blocks]}]
+  [root {:keys [blocks artifacts]}]
   (require-store! root)
-  (mapv (fn [{:keys [cid bytes]}]
-          (when-not (and (string? cid) bytes)
-            (throw (ex-info "invalid closure transfer record"
-                            {:problem :codebase/invalid-transfer-record})))
-          (put-block! root cid (cbor/decode bytes)))
-        blocks))
+  (let [block-cids
+        (mapv (fn [{:keys [cid bytes]}]
+                (when-not (and (string? cid) bytes)
+                  (throw (ex-info "invalid closure transfer record"
+                                  {:problem :codebase/invalid-transfer-record})))
+                (put-block! root cid (cbor/decode bytes)))
+              blocks)
+        artifact-cids
+        (mapv (fn [{:keys [cid bytes]}]
+                (when-not (and (string? cid) bytes (= cid (mf/cidv1-raw bytes)))
+                  (throw (ex-info "invalid artifact transfer record"
+                                  {:problem :codebase/invalid-artifact-transfer
+                                   :cid cid})))
+                (put-artifact! root bytes))
+              artifacts)]
+    (into block-cids artifact-cids)))
 
 (defn transfer-closure!
   "Verified, transport-neutral closure transfer between two local stores.
