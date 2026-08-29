@@ -5,7 +5,7 @@
          :git/sha "58144e81ccdf7a82367085c66ea21ca84a1a7ddb"}
         io.github.kotoba-lang/io-multiformats
         {:git/url "https://github.com/kotoba-lang/io-multiformats.git"
-         :git/sha "310724803db65840f00d2d98d7887f2b6a512bd3"}
+         :git/sha "561fe7dfada3db852b127f06d41750dabd3cead9"}
         ;; kotoba.value.v1, the shared canonical VALUE codec
         ;; (ADR-kotoba-canonical-value-codec, VC4): semantic-code's literal
         ;; vocabulary is no longer its own. Only the codec is used -- io-ipld's
@@ -27,7 +27,7 @@
          :git/sha "73acba38357e701918b24e71b52f6cdda4a22e41"}
         io.github.kotoba-lang/io-ipld
         {:git/url "https://github.com/kotoba-lang/io-ipld.git"
-         :git/sha "e08dc3b2ab705be292e388cd1ad136381544a041"}
+         :git/sha "48ba40490cf082a1473986ac757b8e2b214a3d1b"}
         ;; The provider-neutral block/ref contract the rest of the fleet already
         ;; speaks (ADR-2608580000 D2). It carries ZERO runtime dependencies --
         ;; `kotobase.storage.object-id` assembles base32/multihash/CIDv1 itself
