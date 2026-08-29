@@ -7,6 +7,7 @@
             [ed25519.core :as ed]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.publication :as publication]
+            [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]))
 
 (defn- temp-store []
@@ -203,3 +204,41 @@
           (is (= :publication/sequence-not-advanced
                  (:problem (ex-data (try (publication/accept-head! follower (:record record))
                                          (catch clojure.lang.ExceptionInfo e e)))))))))))
+
+(deftest a-signed-head-can-bind-an-immutable-executable-release
+  (with-stores
+    (fn [publisher follower]
+      (authoring/update-namespace! publisher "demo" '[(defn f [x] x)])
+      (let [head (store/head publisher "demo")
+            release {"schema" "kotoba.library-release.v1" "version" 1
+                     "namespaceHead" (semantic/cid-link head)}
+            release-cid (semantic/block-cid release)
+            _ (store/put-block! publisher release-cid release)
+            signed (publication/publish! publisher "demo" (seed 1)
+                                         {:release-cid release-cid})
+            did (ed/did-key-from-seed (seed 1))]
+        (is (= release-cid (:release (publication/verify-record (:record signed)))))
+        (store/transfer-closure! publisher follower [head release-cid])
+        (is (= release-cid
+               (:release (publication/accept-head! follower (:record signed)
+                                                   {:publisher did}))))))))
+
+(deftest a-signed-release-is-not-accepted-before-its-bytes-are-present
+  (with-stores
+    (fn [publisher follower]
+      (authoring/update-namespace! publisher "demo" '[(defn f [x] x)])
+      (let [head (store/head publisher "demo")
+            release {"schema" "kotoba.library-release.v1" "version" 1
+                     "namespaceHead" (semantic/cid-link head)}
+            release-cid (semantic/block-cid release)
+            _ (store/put-block! publisher release-cid release)
+            signed (publication/publish! publisher "demo" (seed 1)
+                                         {:release-cid release-cid})]
+        (mirror-blocks! publisher follower head)
+        (is (= :codebase/block-not-found
+               (:problem
+                (ex-data
+                 (try
+                   (publication/accept-head! follower (:record signed)
+                                             {:publisher (ed/did-key-from-seed (seed 1))})
+                   (catch clojure.lang.ExceptionInfo e e))))))))))

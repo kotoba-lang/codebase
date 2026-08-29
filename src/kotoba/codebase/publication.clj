@@ -62,7 +62,7 @@
   The signature is not inside what it signs, so verification is `strip,
   re-encode, check` rather than a second serialization format that has to agree
   with the first."
-  [{:keys [namespace head sequence previous publisher]}]
+  [{:keys [namespace head release sequence previous publisher]}]
   (when-not (and (string? namespace) (seq namespace)
                  (string? head) (string? publisher)
                  (integer? sequence) (not (neg? sequence)))
@@ -73,7 +73,8 @@
            "head" (semantic/cid-link head)
            "sequence" sequence
            "publisher" publisher}
-    previous (assoc "previous" (semantic/cid-link previous))))
+    previous (assoc "previous" (semantic/cid-link previous))
+    release (assoc "release" (semantic/cid-link release))))
 
 (defn sign-record
   "Sign a head record with a raw 32-byte Ed25519 seed.
@@ -104,6 +105,7 @@
       (fail! :publication/signature-invalid {:publisher publisher}))
     {:namespace (get record "namespace")
      :head (ir/link->cid (get record "head"))
+     :release (when-let [link (get record "release")] (ir/link->cid link))
      :sequence (get record "sequence")
      :previous (when-let [link (get record "previous")] (ir/link->cid link))
      :publisher publisher
@@ -126,7 +128,8 @@
   [a b]
   (boolean (and a b
                 (= (:sequence a) (:sequence b))
-                (not= (:head a) (:head b)))))
+                (not= [(:head a) (:release a)]
+                      [(:head b) (:release b)]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Follow state
@@ -179,23 +182,27 @@
   Nothing is sent anywhere: transport belongs to a host adapter, and a record
   is a value that can be handed over by any means without changing what it
   proves."
-  [root namespace ^bytes seed]
-  (let [head (or (store/head root namespace)
-                 (fail! :publication/no-head {:namespace namespace}))
-        previous (following root namespace)
-        sequence (inc (long (or (:sequence previous) -1)))
-        record (sign-record seed {:namespace namespace :head head
-                                  :sequence sequence
-                                  :previous (:record-cid previous)})
-        cid (record-cid record)]
-    (write-follow! root namespace
-                   {:publisher (get record "publisher")
-                    :sequence sequence
-                    :head head
-                    :record-cid cid})
-    {:namespace namespace :head head :sequence sequence
-     :publisher (get record "publisher")
-     :record-cid cid :record record}))
+  ([root namespace ^bytes seed] (publish! root namespace seed {}))
+  ([root namespace ^bytes seed {:keys [release-cid]}]
+   (let [head (or (store/head root namespace)
+                  (fail! :publication/no-head {:namespace namespace}))
+         _ (when release-cid (store/get-block root release-cid))
+         previous (following root namespace)
+         sequence (inc (long (or (:sequence previous) -1)))
+         record (sign-record seed {:namespace namespace :head head
+                                   :release release-cid
+                                   :sequence sequence
+                                   :previous (:record-cid previous)})
+         cid (record-cid record)]
+     (write-follow! root namespace
+                    {:publisher (get record "publisher")
+                     :sequence sequence
+                     :head head
+                     :release release-cid
+                     :record-cid cid})
+     {:namespace namespace :head head :release release-cid :sequence sequence
+      :publisher (get record "publisher")
+      :record-cid cid :record record})))
 
 (defn accept-head!
   "Verify RECORD and advance the local head for its namespace.
@@ -238,12 +245,16 @@
      ;; The commit must already be here. A signature says who is speaking; it
      ;; never conjures the bytes they are speaking about.
      (store/namespace-view root (:head verified))
+     (when-let [release (:release verified)]
+       (store/get-block root release))
      (let [expected (store/head root namespace)]
        (store/publish-head! root namespace (:head verified) expected (constantly true)))
      (write-follow! root namespace
                     {:publisher (:publisher verified)
                      :sequence (:sequence verified)
-                     :head (:head verified)
+                    :head (:head verified)
+                    :release (:release verified)
                      :record-cid (record-cid record)})
-     {:namespace namespace :head (:head verified) :sequence (:sequence verified)
+     {:namespace namespace :head (:head verified) :release (:release verified)
+      :sequence (:sequence verified)
       :publisher (:publisher verified) :accepted? true})))
