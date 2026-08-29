@@ -39,6 +39,13 @@
       (fail! :codebase/fetched-block-not-canonical {:cid cid}))
     block))
 
+(defn verify-raw-bytes
+  "Verify raw artifact BYTES against the requested CID."
+  [cid bytes]
+  (when-not (= cid (mf/cidv1-raw bytes))
+    (fail! :codebase/fetched-cid-mismatch {:cid cid}))
+  bytes)
+
 (defn- links-of
   "What to fetch next: every link in the block that could be a stored block.
 
@@ -81,18 +88,30 @@
         (fail! :codebase/fetch-budget-exceeded {:limit max-blocks})
 
         :else
-        (let [local (try (store/get-block root cid)
-                         (catch clojure.lang.ExceptionInfo error
-                           (if (= :codebase/block-not-found (:problem (ex-data error)))
-                             nil
-                             (throw error))))]
+        (let [raw? (store/raw-cid? cid)
+              local (if raw?
+                      (store/get-artifact root cid)
+                      (try (store/get-block root cid)
+                           (catch clojure.lang.ExceptionInfo error
+                             (if (= :codebase/block-not-found (:problem (ex-data error)))
+                               nil
+                               (throw error)))))]
           (if local
-            (recur (into (subvec pending 1) (links-of local)) (conj seen cid) fetched missing)
+            (recur (if raw?
+                     (subvec pending 1)
+                     (into (subvec pending 1) (links-of local)))
+                   (conj seen cid) fetched missing)
             (if-let [bytes (fetch-block cid)]
-              (let [block (verify-bytes cid bytes)]
-                (store/put-block! root cid block)
-                (recur (into (subvec pending 1) (links-of block))
-                       (conj seen cid) (conj fetched cid) missing))
+              (if raw?
+                (do
+                  (verify-raw-bytes cid bytes)
+                  (store/put-artifact! root bytes)
+                  (recur (subvec pending 1) (conj seen cid)
+                         (conj fetched cid) missing))
+                (let [block (verify-bytes cid bytes)]
+                  (store/put-block! root cid block)
+                  (recur (into (subvec pending 1) (links-of block))
+                         (conj seen cid) (conj fetched cid) missing)))
               (recur (subvec pending 1) (conj seen cid) fetched (conj missing cid))))))
       {:roots (vec roots)
        :fetched fetched

@@ -115,3 +115,33 @@
                                          (catch clojure.lang.ExceptionInfo e e))))))))
       (finally
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest ipld-closures-carry-linked-raw-artifacts-and-fail-closed-when-missing
+  (let [source (temp-store) target (temp-store)]
+    (try
+      (doseq [root [source target]] (codebase/initialize! root))
+      (let [wasm (byte-array (map unchecked-byte [0 97 115 109 1 0 0 0]))
+            artifact (codebase/put-artifact! source wasm)
+            manifest {"schema" "kotoba.library-release.v1"
+                      "version" 1
+                      "artifact" (semantic/cid-link artifact)}
+            manifest-cid (semantic/block-cid manifest)]
+        (codebase/put-block! source manifest-cid manifest)
+        (let [bundle (codebase/export-closure source [manifest-cid])]
+          (is (empty? (:missing bundle)))
+          (is (= [artifact] (mapv :cid (:artifacts bundle))))
+          (is (= #{manifest-cid artifact}
+                 (set (codebase/import-closure! target bundle))))
+          (is (= (seq wasm) (seq (codebase/get-artifact target artifact)))))
+        (let [missing-root (temp-store)]
+          (try
+            (codebase/initialize! missing-root)
+            (codebase/put-block! missing-root manifest-cid manifest)
+            (is (= [artifact]
+                   (:missing (codebase/export-closure missing-root [manifest-cid]))))
+            (finally
+              (doseq [f (reverse (file-seq missing-root))] (.delete ^java.io.File f))))))
+      (finally
+        (doseq [root [source target]
+                f (reverse (file-seq root))]
+          (.delete ^java.io.File f))))))
