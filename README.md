@@ -68,6 +68,20 @@ operations over canonical bytes, CID text, and scalar handles. Wasm
 typed-`externref` imports and native context callbacks are transports for this
 ABI; they may not reinterpret the bytes or derive authority from a CID.
 
+## Typed eval is admitted eval
+
+`typed-eval/admit` is the public evaluation boundary. It accepts a definition
+CID, rehydrates the checked KIR closure, checks the exact result descriptor and
+the complete effect row against the caller's current allowance, binds finite
+fuel and nested-eval depth, and returns a content-addressed admission capsule.
+`typed-eval/invoke-admitted` rehashes that capsule before execution and binds the
+result to a value CID.
+
+This is deliberately not host `eval`, `load-string`, or mutable-name lookup.
+A result hash is evidence after a computation; it cannot authorize effects
+that happened before the result existed. Definition identity, admission
+authority, and result evidence therefore remain three distinct hashes.
+
 ## Test
 
 ```sh

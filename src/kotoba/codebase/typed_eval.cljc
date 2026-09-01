@@ -18,12 +18,18 @@
   call traps rather than proceeding."
   (:require [clojure.string :as str]
             [kotoba.codebase.ir :as ir]
+            [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.typed-code :as typed]
             [kotoba.kir :as kir]))
 
 (def default-fuel 100000)
+(def max-admitted-fuel 10000000)
+(def default-eval-depth 1)
+(def max-eval-depth 16)
 (def max-closure-blocks 4096)
+(def admission-schema "kotoba.typed-eval-admission.v1")
+(def result-schema "kotoba.typed-eval-result.v1")
 
 (defn- fail! [problem data]
   (throw (ex-info (name problem) (assoc data :problem problem))))
@@ -266,3 +272,118 @@
                           (cond-> {:fuel fuel}
                             typed-cap-call (assoc :typed-cap-call typed-cap-call)
                             cap-call (assoc :cap-call cap-call)))})))
+
+;; ---------------------------------------------------------------------------
+;; Public typed-eval admission
+
+(defn- qualified-effect? [effect]
+  (and (keyword? effect) (namespace effect)))
+
+(defn- positive-bound! [problem value upper]
+  (when-not (and (integer? value) (pos? value) (<= value upper))
+    (fail! problem {:value value :maximum upper}))
+  value)
+
+(defn- interface-block [{:keys [arity param-types result effects schemas]}]
+  {"arity" arity
+   "params" (mapv typed/canonical-form param-types)
+   "result" (typed/canonical-form result)
+   "effects" (vec (sort (map str effects)))
+   "schemas" (typed/canonical-form schemas)})
+
+(defn admit
+  "Create the immutable admission capsule for evaluating definition CID.
+
+  A CID proves which checked definition was selected; this function separately
+  proves that its typed interface, complete effect row, fuel, and nested-eval
+  depth fit the caller's current authority. `allowed-effects` defaults to the
+  empty set. Content identity therefore never turns into authority by itself."
+  ([root cid] (admit root cid {}))
+  ([root cid {:keys [allowed-effects expected-result fuel max-depth]
+              :or {allowed-effects #{}
+                   fuel default-fuel
+                   max-depth default-eval-depth}}]
+   (positive-bound! :typed-eval/fuel-invalid fuel max-admitted-fuel)
+   (positive-bound! :typed-eval/depth-invalid max-depth max-eval-depth)
+   (when-not (and (set? allowed-effects)
+                  (every? qualified-effect? allowed-effects))
+     (fail! :typed-eval/allowed-effects-invalid
+            {:allowed-effects allowed-effects}))
+   (let [{:keys [interface]} (assemble root cid)
+         effects (:effects interface)
+         denied (set (remove allowed-effects effects))]
+     (when (seq denied)
+       (fail! :typed-eval/effect-not-admitted
+              {:cid cid :effects effects :denied denied
+               :allowed-effects allowed-effects}))
+     (when (and expected-result (not= expected-result (:result interface)))
+       (fail! :typed-eval/result-type-mismatch
+              {:cid cid :expected expected-result :actual (:result interface)}))
+     (let [block {"schema" admission-schema
+                  "version" 1
+                  "definition" (semantic/cid-link cid)
+                  "interface" (interface-block interface)
+                  "allowedEffects" (vec (sort (map str allowed-effects)))
+                  "fuel" fuel
+                  "maxDepth" max-depth}
+           admission-cid (semantic/block-cid block)]
+       {:format :kotoba.typed-eval/admission-v1
+        :cid cid
+        :admission-cid admission-cid
+        :block block
+        :interface interface
+        :effects effects
+        :allowed-effects allowed-effects
+        :fuel fuel
+        :max-depth max-depth}))))
+
+(defn- value-block [admission value]
+  {"schema" result-schema
+   "version" 1
+   "admission" (semantic/cid-link (:admission-cid admission))
+   "definition" (semantic/cid-link (:cid admission))
+   "resultType" (typed/canonical-form (get-in admission [:interface :result]))
+   "value" (typed/canonical-form value)})
+
+(defn invoke-admitted
+  "Execute an ADMISSION produced by `admit` and bind the output to a CID.
+
+  The admission block is rehashed before execution. Effects still require the
+  injected dispatcher; a result CID is integrity evidence after execution, not
+  permission to perform an effect."
+  ([root admission args] (invoke-admitted root admission args {}))
+  ([root admission args {:keys [typed-cap-call cap-call receipt-sink]}]
+   (when-not (and (= :kotoba.typed-eval/admission-v1 (:format admission))
+                  (= (:admission-cid admission)
+                     (semantic/block-cid (:block admission))))
+     (fail! :typed-eval/admission-invalid {}))
+   (let [fresh (admit root (:cid admission)
+                      {:allowed-effects (:allowed-effects admission)
+                       :expected-result (get-in admission [:interface :result])
+                       :fuel (:fuel admission)
+                       :max-depth (:max-depth admission)})]
+     (when-not (= (:admission-cid admission) (:admission-cid fresh))
+       (fail! :typed-eval/admission-drift
+              {:expected (:admission-cid admission)
+               :actual (:admission-cid fresh)}))
+     (when (and (seq (:effects admission)) (nil? receipt-sink))
+       (fail! :typed-eval/receipt-required
+              {:effects (:effects admission)}))
+     ;; The capsule is a real store block, not merely a digest printed by the
+     ;; caller. A failed execution can therefore still be explained by the
+     ;; exact admission that preceded it.
+     (store/put-block! root (:admission-cid admission) (:block admission))
+     (let [result (invoke root (:cid admission) args
+                          (cond-> {:fuel (:fuel admission)}
+                            typed-cap-call (assoc :typed-cap-call typed-cap-call)
+                            cap-call (assoc :cap-call cap-call)))
+           block (value-block admission (:value result))
+           value-cid (semantic/block-cid block)
+           _ (store/put-block! root value-cid block)
+           completed (assoc result
+                            :admission-cid (:admission-cid admission)
+                            :value-cid value-cid)]
+       (when receipt-sink
+         (receipt-sink (select-keys completed
+                                    [:cid :admission-cid :value-cid :effects])))
+       completed))))

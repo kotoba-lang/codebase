@@ -190,6 +190,61 @@
         (is (= #{:log/write} (:effects result)))
         (is (= 1 (count @seen)))))))
 
+(deftest typed-eval-admission-separates-identity-authority-and-result-evidence
+  (with-store
+    (fn [root]
+      (let [cids (store-all! root (typed/compile-module (kir [double-fn])))
+            cid (get cids "double")
+            admission-a (typed-eval/admit root cid {:expected-result :i64})
+            admission-b (typed-eval/admit root cid {:expected-result :i64})
+            result-a (typed-eval/invoke-admitted root admission-a [21])
+            result-b (typed-eval/invoke-admitted root admission-b [21])]
+        (is (= cid (:cid admission-a)))
+        (is (= (:admission-cid admission-a) (:admission-cid admission-b)))
+        (is (= 42 (:value result-a)))
+        (is (= (:value-cid result-a) (:value-cid result-b)))
+        (is (string? (:value-cid result-a)))
+        (is (= typed-eval/admission-schema
+               (get (store/get-block root (:admission-cid result-a)) "schema")))
+        (is (= typed-eval/result-schema
+               (get (store/get-block root (:value-cid result-a)) "schema")))))))
+
+(deftest typed-eval-admission-fails-before-an-ungranted-effect
+  (with-store
+    (fn [root]
+      (let [cids (store-all!
+                  root (typed/compile-module
+                        (kir [{:name 'emit :params '[x] :param-types [:i64]
+                               :result :i64 :effects #{:log/write}
+                               :body '(typed-cap-call 9 :i64 :i64 x)}])))
+            cid (get cids "emit")]
+        (is (= :typed-eval/effect-not-admitted
+               (:problem
+                (ex-data
+                 (try (typed-eval/admit root cid)
+                      (catch clojure.lang.ExceptionInfo e e))))))
+        (let [admission (typed-eval/admit root cid
+                                          {:allowed-effects #{:log/write}})]
+          (is (= 7 (:value
+                    (typed-eval/invoke-admitted
+                     root admission [7]
+                     {:typed-cap-call (fn [_ _ _ request] request)
+                      :receipt-sink (fn [_])})))))))))
+
+(deftest typed-eval-admission-binds-limits-and-refuses-tampering
+  (with-store
+    (fn [root]
+      (let [cids (store-all! root (typed/compile-module (kir [double-fn])))
+            cid (get cids "double")
+            shallow (typed-eval/admit root cid {:fuel 99 :max-depth 1})
+            deeper (typed-eval/admit root cid {:fuel 99 :max-depth 2})]
+        (is (not= (:admission-cid shallow) (:admission-cid deeper)))
+        (is (= :typed-eval/admission-drift
+               (:problem
+                (ex-data
+                 (try (typed-eval/invoke-admitted root (assoc shallow :fuel 100) [2])
+                      (catch clojure.lang.ExceptionInfo e e))))))))))
+
 (deftest an-update-propagates-across-typed-definitions-too
   (with-store
     (fn [root]
