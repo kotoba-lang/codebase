@@ -24,7 +24,7 @@
          :git/sha "fdcefb9f1b83461fee54d04b63e374fa301ee847"}
         io.github.kotoba-lang/kotoba-kir
         {:git/url "https://github.com/kotoba-lang/kotoba-kir.git"
-         :git/sha "73acba38357e701918b24e71b52f6cdda4a22e41"}
+         :git/sha "1e00f830e96bf762a95085f2eb5741d470d26ee6"}
         io.github.kotoba-lang/io-ipld
         {:git/url "https://github.com/kotoba-lang/io-ipld.git"
          :git/sha "48ba40490cf082a1473986ac757b8e2b214a3d1b"}

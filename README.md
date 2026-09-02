@@ -31,6 +31,23 @@ Prefer `typed-code` for anything that will also be compiled: it is the layer
 where what a definition IS and what gets executed are the same object, and its
 language coverage is the compiler's rather than a hand-maintained subset.
 
+**A third identity exists outside this repository, and it is the authority.**
+`lang/code-identity.edn` (kotoba-lang/kotoba-lang) names
+`kotoba.kir.definition-identity` (payload version 2, canonical DAG-CBOR, 10
+frozen vectors, JVM/ClojureScript byte-identical) as the definition-CID
+implementation, and `typed-code` does not call it: it hashes its own canonical
+form, so the same definition gets a different CID from each (measured
+2026-09-02, pinned by `test/kotoba/codebase/typed_code_identity_divergence_test.clj`).
+The recorded direction (`lang/code-identity.edn :identity-implementations`) is
+that `typed-code` adopts `kotoba.kir.definition-identity` as its hashing core
+under a versioned migration; that migration moves stored typed-code CIDs and
+has not been done. Effect rows are the sharpest difference: `typed-code` seals
+whatever it is handed as a string (a compiler wire row `[:cap/call 9]` becomes
+the string `"[:cap/call 9]"`), while `kotoba-kir` refuses the wire row and seals
+the named operation reached through `effect-row-from-hir`. Do not "fix" one
+side to match the other quietly -- the divergence test exists so that it is done
+on purpose.
+
 Alpha-normalization in `typed-code` is verified rather than assumed. KIR has
 five binding forms, and a sixth added later would silently leave a
 source-chosen name inside a hash — so a binder that survives renaming fails the
