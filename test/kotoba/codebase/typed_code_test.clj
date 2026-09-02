@@ -10,7 +10,8 @@
             [kotoba.codebase.render :as render]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.typed-code :as typed]
-            [kotoba.codebase.typed-eval :as typed-eval]))
+            [kotoba.codebase.typed-eval :as typed-eval]
+            [kotoba.kir.alpha-normalization :as an]))
 
 (defn- temp-store []
   (.toFile (java.nio.file.Files/createTempDirectory
@@ -289,3 +290,35 @@
             viewed (render/view root (get cids "countdown")
                                 {:names {(get cids "countdown") "countdown"}})]
         (is (= '(if (= k0 0) 0 (countdown (- k0 1))) (:form viewed)))))))
+
+;; ---------------------------------------------------------------------------
+;; Alpha-normalization is kotoba-kir's, not a copy of it
+
+(deftest alpha-normalization-is-delegated-not-reimplemented
+  (testing "this repository and kotoba.compiler.definition-identity each
+  carried the same five-binder walk against the same KIR, which kotoba-lang
+  lang/code-identity.edn recorded as a residual risk of :ci8. The walk now lives
+  in kotoba-kir. Asserting the var IS kir's is what stops it being forked again
+  by a later edit that only looks locally correct."
+    (is (identical? an/alpha-normalize typed/alpha-normalize))))
+
+(deftest the-refusal-keeps-this-repositorys-problem-keyword
+  (testing "a refusal reason is part of this repository's diagnostic
+  vocabulary; kir takes it as an argument rather than renaming it"
+    (let [ex (try (#'typed/verify-normalized!
+                   (an/alpha-normalize {:params '[] :body '(pair (let [a 1] a) a)})
+                   #{})
+                  nil
+                  (catch Exception e e))]
+      (is (some? ex) "refused")
+      (is (= :typed-code/binder-not-normalized (:problem (ex-data ex)))))))
+
+(deftest the-desugar-contract-default-stays-1-for-a-stated-reason
+  (testing "kotoba-lang lang/elaboration-pipeline.edn now reads 2, and layer 1
+  deliberately does not follow it: this constant is one of the six inputs the
+  published, signed and served layer-1 CID seals. A layer-2 caller passes the
+  authority's value. Silently behind and deliberately held have to be tellable
+  apart from the output, so the reason is on the var and this pins the value."
+    (is (= 1 typed/default-desugar-contract-version))
+    (is (re-find #"published" (:doc (meta #'typed/default-desugar-contract-version)))
+        "the var says why it does not follow the authority")))
