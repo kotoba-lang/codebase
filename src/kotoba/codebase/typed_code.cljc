@@ -22,13 +22,17 @@
     every caller;
   - NOT the definition's own name, and not the names of the functions it calls.
 
-  Alpha-normalization is verified rather than assumed. KIR has five binding
-  forms (`params`, `let`, `result-match-of`, `variant-match`, `option-match`),
-  and a sixth introduced later would silently leave a source-chosen name inside
-  a hash. So after renaming, any surviving original binder name that is not a
-  known call target fails the compile closed."
+  Alpha-normalization is not implemented here. KIR has five binding forms
+  (`params`, `let`, `result-match-of`, `variant-match`, `option-match`) and
+  kotoba-kir owns the walk over them, as `kotoba.kir.alpha-normalization`; this
+  repository and the compiler each used to carry a copy of it, which is the
+  defect kotoba-lang `lang/code-identity.edn` recorded and named the fix for.
+  After renaming, any surviving original binder name that is not a known call
+  target fails the compile closed -- with the limit of that check stated at the
+  delegation below rather than assumed to be total."
   (:require [cbor.core :as cbor]
             [kotoba.codebase.semantic-code :as semantic]
+            [kotoba.kir.alpha-normalization :as an]
             [kotoba.kir.definition-identity :as di]))
 
 (def schema "kotoba.typed-definition.v1")
@@ -57,7 +61,23 @@
   than a CID of its spelling."
   3)
 
-(def default-desugar-contract-version 1)
+(def default-desugar-contract-version
+  "The desugar contract version sealed when a caller does not supply one.
+
+  It stays 1 with a reason, not by default. kotoba-lang
+  `lang/elaboration-pipeline.edn` `[:contract-versions :desugar-contract]` is
+  the authority for this number and it has read 2 since 2026-09-01, when `eval`
+  moved out of `:forbidden-heads` and into the desugar table. Layer 1 cannot
+  follow it: `bafyreif7drknz5fumncb5gqdo2jqel7hulxbzwcoohq2gsds2zm26pe6oe` is
+  published, signed and served, and this constant is one of the six inputs its
+  CID seals. Raising it would re-address a block other people hold.
+
+  A LAYER-2 caller should pass the authority's current value explicitly --
+  layer 2 is opt-in, nothing published points at one, and `compile-module`
+  accepts `:desugar-contract-version` for exactly this. This repository does not
+  read the authority itself because it does not depend on kotoba-lang; the
+  compiler does, and does."
+  1)
 
 (def max-recursive-group 8)
 
@@ -123,160 +143,56 @@
   {"op" "recursive-reference" "index" index})
 
 ;; ---------------------------------------------------------------------------
-;; Alpha normalization
-
-(def ^:private binder-name-prefix "k")
-
-(defn- canonical-binder [n] (symbol (str binder-name-prefix n)))
+;; Alpha normalization -- delegated to kotoba-kir
+;;
+;; This repository carried its own copy of the five-binder walk, and so did
+;; kotoba.compiler.definition-identity: the same algorithm, over the same KIR,
+;; in two places, with neither one the authority. kotoba-lang
+;; lang/code-identity.edn recorded that as a residual risk of :ci8 and named the
+;; fix -- into kotoba-kir, not into a third place. It landed there on
+;; 2026-09-02 as kotoba.kir.alpha-normalization.
+;;
+;; Two things this copy did are preserved as arguments rather than as code.
+;; The refusal keyword stays :typed-code/binder-not-normalized, because that is
+;; this repository's diagnostic vocabulary and a consumer matching on it would
+;; not know about kir's. And the leaf stays untouched (`:scalar` defaults to
+;; `identity`), because `canonical-form` below admits host Float and Double
+;; directly and distinguishes f32 from f64 -- a distinction the compiler's leaf,
+;; which maps every host number into the identity's single f64 form, would lose.
+;;
+;; One behaviour changed: kir walks into a set, and this copy did not, so a
+;; bound symbol inside a set survived and `verify-normalized!` refused it. That
+;; widens a refusal into a CID; it moves no CID that exists, because the case it
+;; changes is exactly the case that produced none.
 
 (defn- ref-type-vector?
-  "`[:ref schema-name]` names a schema, not a local. Renaming inside it would
-  rewrite a type."
+  "`[:ref schema-name]` names a schema, not a local. Both the renaming walk and
+  dependency linking have to leave it alone; kir keeps its own copy for the
+  first, and this one is for the second, which is this repository's."
   [form]
   (and (vector? form) (= :ref (first form)) (= 2 (count form))))
 
-(declare normalize-form)
-
-(defn- normalize-seq [forms state]
-  (reduce (fn [{:keys [out state]} form]
-            (let [{:keys [form state]} (normalize-form form state)]
-              {:out (conj out form) :state state}))
-          {:out [] :state state}
-          forms))
-
-(defn- bind-one [state name]
-  (let [renamed (canonical-binder (:counter state))]
-    {:renamed renamed
-     :state (-> state
-                (update :counter inc)
-                (update :scope assoc name renamed)
-                (update :bound conj name))}))
-
-(defn- with-scope
-  "Run F with STATE's scope, then restore the outer scope but keep the counter
-  and the record of which names were bound."
-  [state f]
-  (let [outer (:scope state)
-        {:keys [form state]} (f state)]
-    {:form form :state (assoc state :scope outer)}))
-
-(defn- normalize-form
-  "Rename binders to canonical names, leaving everything else alone."
-  [form state]
-  (cond
-    (symbol? form)
-    {:form (get (:scope state) form form) :state state}
-
-    (ref-type-vector? form)
-    {:form form :state state}
-
-    (map? form)
-    (let [{:keys [out state]} (normalize-seq (mapcat identity form) state)]
-      {:form (apply hash-map out) :state state})
-
-    (vector? form)
-    (let [{:keys [out state]} (normalize-seq form state)]
-      {:form out :state state})
-
-    (seq? form)
-    (let [[op & args] form]
-      (case op
-        let
-        (with-scope
-          state
-          (fn [state]
-            (let [[bindings body] args
-                  {:keys [pairs state]}
-                  (reduce (fn [{:keys [pairs state]} [name value]]
-                            (let [{value :form state :state} (normalize-form value state)
-                                  {:keys [renamed state]} (bind-one state name)]
-                              {:pairs (conj pairs renamed value) :state state}))
-                          {:pairs [] :state state}
-                          (partition 2 bindings))
-                  {body :form state :state} (normalize-form body state)]
-              {:form (list 'let pairs body) :state state})))
-
-        result-match-of
-        (let [[type result-form ok-name ok-body err-name err-body] args
-              {result-form :form state :state} (normalize-form result-form state)
-              {ok :form state :state}
-              (with-scope state
-                (fn [state]
-                  (let [{:keys [renamed state]} (bind-one state ok-name)
-                        {body :form state :state} (normalize-form ok-body state)]
-                    {:form [renamed body] :state state})))
-              {err :form state :state}
-              (with-scope state
-                (fn [state]
-                  (let [{:keys [renamed state]} (bind-one state err-name)
-                        {body :form state :state} (normalize-form err-body state)]
-                    {:form [renamed body] :state state})))]
-          {:form (list 'result-match-of type result-form
-                       (first ok) (second ok) (first err) (second err))
-           :state state})
-
-        variant-match
-        (let [[type value-form branches] args
-              {value-form :form state :state} (normalize-form value-form state)
-              {:keys [out state]}
-              (reduce (fn [{:keys [out state]} [tag binder body]]
-                        (let [{branch :form state :state}
-                              (with-scope state
-                                (fn [state]
-                                  (let [{:keys [renamed state]} (bind-one state binder)
-                                        {body :form state :state} (normalize-form body state)]
-                                    {:form [tag renamed body] :state state})))]
-                          {:out (conj out branch) :state state}))
-                      {:out [] :state state}
-                      branches)]
-          {:form (list 'variant-match type value-form out) :state state})
-
-        option-match
-        (let [[type option-form none-body some-name some-body] args
-              {option-form :form state :state} (normalize-form option-form state)
-              {none-body :form state :state} (normalize-form none-body state)
-              {some :form state :state}
-              (with-scope state
-                (fn [state]
-                  (let [{:keys [renamed state]} (bind-one state some-name)
-                        {body :form state :state} (normalize-form some-body state)]
-                    {:form [renamed body] :state state})))]
-          {:form (list 'option-match type option-form none-body (first some) (second some))
-           :state state})
-
-        ;; Any other operator: the operator symbol itself may be a call target
-        ;; and is renamed only if it is locally bound, which it never is.
-        (let [{:keys [out state]} (normalize-seq args state)]
-          {:form (cons (get (:scope state) op op) out) :state state})))
-
-    :else {:form form :state state}))
-
-(defn- symbols-in [form]
-  (into #{} (filter symbol?) (tree-seq coll? seq form)))
-
-(defn alpha-normalize
-  "Canonically rename a function's binders. Returns `{:params :body :bound}`."
-  [{:keys [params body]}]
-  (let [state (reduce (fn [state name] (:state (bind-one state name)))
-                      {:counter 0 :scope {} :bound #{}}
-                      params)
-        renamed-params (mapv #(get (:scope state) %) params)
-        {body :form state :state} (normalize-form body state)]
-    {:params renamed-params :body body :bound (:bound state)}))
+(def alpha-normalize
+  "kotoba.kir.alpha-normalization/alpha-normalize. Kept as a name here because
+  the tests and `prepare` call it, and because a reader following
+  `compile-module` should not have to know which repository owns the walk to
+  find out what it does."
+  an/alpha-normalize)
 
 (defn- verify-normalized!
-  "Refuse an identity that still contains a source-chosen binder name.
+  "Refuse an identity that still contains a source-chosen binder name, under
+  this repository's problem keyword.
 
-  This is what makes the five-binder list checkable instead of assumed: a
-  binding form KIR gains later would leave its binder in the body, and this
-  fails rather than hashing it."
-  [{:keys [body bound]} call-targets]
-  (let [present (symbols-in body)
-        leaked (remove #(contains? call-targets %) (filter present bound))]
-    (when (seq leaked)
-      (fail! :typed-code/binder-not-normalized
-             {:symbols (vec (sort (map str leaked)))
-              :hint "a KIR binding form is not handled by alpha-normalize"}))))
+  MEASURED LIMIT (2026-09-02), corrected here rather than carried: the docstring
+  this replaces said the check catches a binding form KIR gains later. It
+  catches one that takes a name this walk already bound and lets a reference
+  escape. A self-contained one -- `(loop [i 0] (+ i 1))` with no outer `i` --
+  leaks nothing by this test, so the source name is sealed. See
+  `kotoba.kir.alpha-normalization` for why closing that needs an operator table
+  kotoba-kir does not own."
+  [normalized call-targets]
+  (an/verify-normalized! normalized call-targets
+                         {:problem :typed-code/binder-not-normalized}))
 
 ;; ---------------------------------------------------------------------------
 ;; Dependency linking
@@ -593,7 +509,7 @@
                                         (:body function)]))))
 
 (defn- function-references [body names]
-  (into #{} (filter names) (symbols-in body)))
+  (into #{} (filter names) (an/symbols-in body)))
 
 (defn- strongly-connected
   "Small deterministic SCC partition, mirroring `semantic-code`'s."
