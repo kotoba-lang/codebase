@@ -134,6 +134,17 @@
 ;; ---------------------------------------------------------------------------
 ;; Interface
 
+(def ^:private layer-2-refusal
+  "A layer-2 block is the canonical identity payload, not a tagged map, so
+  nothing below can decode it. Saying that by name matters more than usual
+  here: `(get block \"schema\")` on a payload block returns nil, and a nil
+  schema is exactly what an unrelated corrupt block looks like. A reader that
+  reports the same thing for `I do not know what this is` and for `this is the
+  identity layer I cannot run yet` is a reader nobody can act on."
+  (str "block is a kotoba.typed-definition.v2 identity payload; typed-eval "
+       "executes identity layer 1 only. Evaluate the layer-1 definition, or "
+       "see kotoba.codebase.typed-migrate for the relationship between them."))
+
 (defn- interface-of [root cid]
   (let [block (store/get-block root cid)]
     (when-not (= "kotoba.typed-interface.v1" (get block "schema"))
@@ -195,8 +206,12 @@
                     typed/member-schema
                     (emit-group (ir/link->cid (get block "group")))
 
-                    (fail! :typed-eval/not-a-typed-definition
-                           {:cid cid :schema (get block "schema")})))))
+                    (if (= 2 (typed/block-identity-version block))
+                      (throw (ex-info layer-2-refusal
+                                      {:problem :typed-eval/identity-layer-2-not-executable
+                                       :cid cid :identity-version 2}))
+                      (fail! :typed-eval/not-a-typed-definition
+                             {:cid cid :schema (get block "schema")}))))))
 
             (emit-group [group-cid]
               (when-not (contains? @seen group-cid)
@@ -231,6 +246,10 @@
                 (fail! :typed-eval/recursive-reference-outside-group {})))]
 
       (let [block (store/get-block root cid)
+            _ (when (= 2 (typed/block-identity-version block))
+                (throw (ex-info layer-2-refusal
+                                {:problem :typed-eval/identity-layer-2-not-executable
+                                 :cid cid :identity-version 2})))
             member? (= typed/member-schema (get block "schema"))
             entry-name (if member?
                          (member-symbol (ir/link->cid (get block "group")) (get block "index"))
