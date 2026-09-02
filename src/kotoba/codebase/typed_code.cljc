@@ -28,12 +28,36 @@
   a hash. So after renaming, any surviving original binder name that is not a
   known call target fails the compile closed."
   (:require [cbor.core :as cbor]
-            [kotoba.codebase.semantic-code :as semantic]))
+            [kotoba.codebase.semantic-code :as semantic]
+            [kotoba.kir.definition-identity :as di]))
 
 (def schema "kotoba.typed-definition.v1")
 (def group-schema "kotoba.typed-group.v1")
 (def member-schema "kotoba.typed-member.v1")
 (def contract-version 1)
+
+(def schema-v2
+  "Identity layer 2. Not a key in the block -- see `definition-block-v2` for
+  why a layer-2 block cannot carry one -- but sealed inside the interface, so
+  it is recoverable from the bytes and participates in the identity."
+  "kotoba.typed-definition.v2")
+
+(def default-identity-version
+  "Layer 1 stays the default. Layer-1 CIDs are published and live: kotoba-lang
+  `lang/package-registry.edn` `:registry/definition-cids` names
+  bafyreif7drknz5fumncb5gqdo2jqel7hulxbzwcoohq2gsds2zm26pe6oe, whose block is
+  committed at `site/dist/ipfs/` and served 200 from kotoba-lang.org and
+  kotoba.cloud (measured 2026-09-02). Moving them is a migration, never a
+  default."
+  1)
+
+(def default-profile-version
+  "`semantic/default-profile-cid` addresses the string
+  \"kotoba.lang.profile.v3\"; layer 2 seals the version the ADR names rather
+  than a CID of its spelling."
+  3)
+
+(def default-desugar-contract-version 1)
 
 (def max-recursive-group 8)
 
@@ -260,8 +284,15 @@
 (defn- link-dependencies
   "Replace call-target symbols with reference nodes, returning
   `{:body :dependencies}`. RESOLVED maps a function name to its CID; GROUP maps
-  a name to its index inside the recursive group being built."
-  [body resolved group]
+  a name to its index inside the recursive group being built.
+
+  `->REF` builds the node a dependency becomes. Layer 1 uses `reference-node`,
+  a DAG-CBOR link; layer 2 uses `definition-ref`, ordinary data, because the
+  canonical identity domain admits no CBOR tag. The walk itself -- what counts
+  as a dependency, and the eagerness the comment below is about -- is the same
+  question either way and stays written once."
+  ([body resolved group] (link-dependencies body resolved group reference-node))
+  ([body resolved group ->ref]
   (let [dependencies (atom #{})]
     (letfn [(walk [form]
               (cond
@@ -269,7 +300,7 @@
                 (cond
                   (contains? group form) (group-node (get group form))
                   (contains? resolved form) (do (swap! dependencies conj (get resolved form))
-                                                (reference-node (get resolved form)))
+                                                (->ref (get resolved form)))
                   :else form)
 
                 (ref-type-vector? form) form
@@ -283,7 +314,7 @@
                 (seq? form) (apply list (mapv walk form))
                 :else form))]
       (let [linked (walk body)]
-        {:body linked :dependencies (vec (sort @dependencies))}))))
+        {:body linked :dependencies (vec (sort @dependencies))})))))
 
 (defn- canonical-body
   "Canonical data for a body whose dependencies are already reference nodes."
@@ -353,6 +384,200 @@
 (defn default-contract-cid []
   (semantic/source-cid
    "kotoba.typed-definition.v1|kir-alpha-normalized|dag-cbor|sha2-256|typed-scc-v1"))
+
+;; ---------------------------------------------------------------------------
+;; Identity layer 2 -- delegate to kotoba.kir.definition-identity
+;;
+;; Everything above computes a canonical form THIS namespace owns. The
+;; workspace contract (kotoba-lang `lang/code-identity.edn`) names
+;; `kotoba.kir.definition-identity` as the implementation of definition
+;; identity, and measured 2026-09-02 the two give different CIDs for the same
+;; definition. Layer 2 stops being a second answer: the CID a definition gets
+;; IS the payload-v2 DefCID, over the same six sealed inputs.
+;;
+;; One structural consequence decides the block shape, so it is worth stating
+;; rather than discovering: `store/put-block!` verifies that a block re-encodes
+;; to the CID it is filed under. A CID minted by `definition-cid` can therefore
+;; name exactly one byte string -- the canonical identity payload. A layer-2
+;; block is consequently NOT a map with a "schema" key; it IS
+;; `(normalize (identity-payload ...))`, and the schema tag lives inside the
+;; sealed interface, where it is part of the identity instead of decoration on
+;; top of it. Layer 1 and layer 2 blocks are distinguishable without a tag
+;; lookup anyway: one is a CBOR map, the other a CBOR array.
+;;
+;; Layer 1 remains the default and stays readable. This is a versioned
+;; migration, never an in-place re-encoding -- see `default-identity-version`.
+
+(defn- definition-ref
+  "A dependency inside a layer-2 body. Ordinary data, because the canonical
+  identity domain admits no CBOR tag: `normalize` refuses a tagged value
+  rather than inventing an encoding for it. The CID is sealed a second time in
+  `:definition/dependencies`, so nothing is lost by spelling it as a string."
+  [cid]
+  {:op :kir/definition-ref :cid cid})
+
+(defn sealed-effect-row
+  "The keyword effect row `kotoba.kir.definition-identity` seals, from whatever
+  the compiler handed us.
+
+  Three inputs, three outcomes, and none of them is a fallthrough:
+
+  - a row of keywords is already the sealed vocabulary and passes through;
+  - a row carrying `[:cap/call <id>]` wire vectors goes through
+    `di/effect-row-from-hir`, which needs the catalog's `:id->name` and
+    refuses an id the catalog cannot name;
+  - anything else is refused here.
+
+  Layer 1 does none of this: `stable-name` falls through to `str`, so a wire
+  row is sealed as the STRING \"[:cap/call 9]\", which `typed-eval` reads back
+  with `(map keyword)` and which can therefore never match an allowed effect.
+  That is the defect this function exists not to repeat, which is why there is
+  no branch here that stringifies."
+  [effects {:keys [capability-id->name]}]
+  (let [row (cond (nil? effects) #{}
+                  (set? effects) effects
+                  (coll? effects) (set effects)
+                  :else (fail! :typed-code/effect-row-unbridged
+                               {:effects effects
+                                :hint "an effect row must be a collection"}))]
+    (cond
+      (every? keyword? row) row
+
+      (some vector? row)
+      (if (map? capability-id->name)
+        (di/effect-row-from-hir {:effects row} {:id->name capability-id->name})
+        (fail! :typed-code/effect-row-unbridged
+               {:effects row
+                :hint (str "a compiler wire row needs {:capability-id->name <catalog>}; "
+                           "typed-code never guesses a name for a wire id, and never "
+                           "seals one as a string")}))
+
+      :else
+      (fail! :typed-code/effect-row-unbridged
+             {:effects row
+              :hint "effect row members must be keywords, or wire [:cap/call <id>] vectors"}))))
+
+(def ^:private max-exact-integer
+  "2^53 - 1, the same bound `di/normalize` enforces."
+  9007199254740991)
+
+(defn- admit-scalar
+  "One KIR scalar in the canonical identity domain `di/normalize` admits.
+
+  Layer 1 encodes a float as its bit pattern under an `f32`/`f64` tag it owns.
+  Layer 2's domain has an exact f64 form and NO f32 form, so:
+
+  - a double becomes `di/f64`, which is the same bit pattern, losslessly;
+  - a float is REFUSED. Widening it to a double would silently answer a
+    different question than the type system asked, and there is no narrower
+    place to put the answer;
+  - an integer past +/-(2^53-1) becomes `di/i64`, because a ClojureScript
+    reader has already rounded a plain literal that large.
+
+  Idempotent: the wrappers it produces are maps of strings, which it leaves
+  alone."
+  [x]
+  #?(:clj
+     (cond
+       (instance? Float x)
+       (fail! :typed-code/f32-unsupported-under-v2
+              {:value (str x)
+               :hint (str "the canonical identity domain has an exact f64 form and no f32 "
+                          "form; widening would seal a value the type system distinguishes "
+                          "from the one that was written")})
+       (instance? Double x) (di/f64 x)
+       (integer? x) (if (<= (- max-exact-integer) x max-exact-integer) (long x) (di/i64 x))
+       :else x)
+     :cljs
+     (cond
+       (and (some? x) (not (number? x)) (not (string? x)) (not (boolean? x))
+            (identical? js/BigInt (.-constructor x)))
+       (let [n (js/Number x)]
+         (if (js/Number.isSafeInteger n) n (di/i64 (.toString x))))
+       (and (number? x) (not (integer? x))) (di/f64 x)
+       (and (integer? x) (not (<= (- max-exact-integer) x max-exact-integer))) (di/i64 x)
+       :else x)))
+
+(defn admit-value
+  "Rewrite a KIR form's scalars into the layer-2 identity domain.
+
+  Applied on BOTH routes into a layer-2 payload -- compiling a module and
+  migrating a stored layer-1 block -- so the two cannot disagree about how a
+  literal is sealed. A shared answer is the whole point of the layer."
+  [form]
+  (cond
+    (map? form) (into {} (map (fn [[k v]] [(admit-value k) (admit-value v)])) form)
+    (vector? form) (mapv admit-value form)
+    (set? form) (into #{} (map admit-value) form)
+    (seq? form) (apply list (map admit-value form))
+    :else (admit-scalar form)))
+
+(defn interface-payload
+  "The typed interface layer 2 seals. `schema-v2` is a member so the layer is
+  recoverable from the bytes AND cannot be changed without moving the CID."
+  [{:keys [params param-types result]} schemas]
+  {:schema schema-v2
+   :arity (count params)
+   :param-types (vec (or param-types (vec (repeat (count params) :i64))))
+   :result result
+   :schemas (into {} schemas)})
+
+(defn- kir-node [{:keys [params param-types result]} body]
+  {:op :kir/function
+   :params (vec params)
+   :param-types (vec (or param-types (vec (repeat (count params) :i64))))
+   :result result
+   :body body})
+
+(defn definition-payload
+  "The six sealed inputs `kotoba.kir.definition-identity` addresses, built from
+  an alpha-normalized, dependency-linked KIR function."
+  [{:keys [function params body dependencies effect-row schemas
+           profile-version desugar-contract-version]}]
+  (let [function (assoc function :params params)]
+    {:definition/profile-version (or profile-version default-profile-version)
+     :definition/desugar-contract-version (or desugar-contract-version
+                                              default-desugar-contract-version)
+     :definition/kir (admit-value (kir-node function body))
+     :definition/effect-row effect-row
+     :definition/interface (admit-value (interface-payload function schemas))
+     :definition/dependencies (vec (sort (distinct dependencies)))}))
+
+(defn definition-block-v2
+  "The bytes a layer-2 CID names. `(semantic/block-cid (definition-block-v2 p))`
+  equals `(di/definition-cid p)` by construction -- both are
+  `cidv1-dag-cbor` over `(cbor/encode (normalize (identity-payload p)))` -- and
+  a test asserts it rather than leaving it to the reader."
+  [payload]
+  (di/normalize (di/identity-payload payload)))
+
+(defn payload-block?
+  "Whether BLOCK is a layer-2 block: the canonical identity payload, which is a
+  tagged array rather than the tagged map layer 1 writes."
+  [block]
+  (boolean
+   (and (vector? block)
+        (= 2 (count block))
+        (= "map" (nth block 0))
+        (coll? (nth block 1))
+        (some (fn [entry]
+                (and (coll? entry)
+                     (= ["kw" "kotoba.definition-identity/version"]
+                        (first entry))))
+              (nth block 1)))))
+
+(defn block-identity-version
+  "Which identity layer BLOCK belongs to, or nil when it is neither.
+
+  Returning nil rather than defaulting is the point: a reader that guesses
+  layer 1 for an unrecognised block is a reader that accepts a layer-2 block
+  silently and decodes it as something it is not."
+  [block]
+  (cond
+    (and (map? block)
+         (contains? #{schema group-schema member-schema} (get block "schema"))) 1
+    (payload-block? block) 2
+    :else nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Module compilation
@@ -441,6 +666,7 @@
                             "index" index
                             "interface" (semantic/cid-link interface-cid)}]
                 [name {:name name :cid (semantic/block-cid member) :block member
+                       :identity-version 1
                        :interface-cid interface-cid :interface-block interface
                        :group-cid group-cid :group-block (:block chosen)
                        :dependency-cids (:dependencies chosen)}]))
@@ -453,9 +679,14 @@
   a namespace links to the definitions that namespace selects rather than to
   a name it hopes to find later."
   ([kir] (compile-module kir {}))
-  ([kir {:keys [definitions profile-cid hash-contract-cid]
+  ([kir {:keys [definitions profile-cid hash-contract-cid identity-version
+                profile-version desugar-contract-version capability-id->name]
          :or {definitions {}}}]
-   (let [profile-cid (or profile-cid (semantic/default-profile-cid))
+   (let [identity-version (or identity-version default-identity-version)
+         _ (when-not (contains? #{1 2} identity-version)
+             (fail! :typed-code/unknown-identity-version
+                    {:identity-version identity-version :known #{1 2}}))
+         profile-cid (or profile-cid (semantic/default-profile-cid))
          hash-contract-cid (or hash-contract-cid (default-contract-cid))
          ir-format (:format kir)
          schemas (:schemas kir)
@@ -477,6 +708,7 @@
        (if (empty? pending)
          {:schema "kotoba.typed-codebase.v1"
           :ir-format ir-format
+          :identity-version identity-version
           :profile-cid profile-cid
           :hash-contract-cid hash-contract-cid
           :definitions output}
@@ -487,20 +719,39 @@
              (let [compiled
                    (into {}
                          (map (fn [name]
-                                (let [{:keys [body params schemas function]} (get prepared name)
-                                      {:keys [body dependencies]} (link-dependencies body resolved {})
-                                      interface (interface-block (assoc function :params params) schemas)
-                                      interface-cid (semantic/block-cid interface)
-                                      block (definition-block
-                                             {:body (canonical-body body)
-                                              :dependencies dependencies
-                                              :ir-format ir-format
-                                              :interface-cid interface-cid
-                                              :profile-cid profile-cid
-                                              :hash-contract-cid hash-contract-cid})]
-                                  [name {:name name :cid (semantic/block-cid block) :block block
-                                         :interface-cid interface-cid :interface-block interface
-                                         :dependency-cids dependencies}])))
+                                (let [{:keys [body params schemas function]} (get prepared name)]
+                                  (if (= 2 identity-version)
+                                    (let [{:keys [body dependencies]}
+                                          (link-dependencies body resolved {} definition-ref)
+                                          payload
+                                          (definition-payload
+                                           {:function function :params params :body body
+                                            :dependencies dependencies :schemas schemas
+                                            :effect-row (sealed-effect-row
+                                                         (:effects function)
+                                                         {:capability-id->name capability-id->name})
+                                            :profile-version profile-version
+                                            :desugar-contract-version desugar-contract-version})]
+                                      [name {:name name
+                                             :cid (di/definition-cid payload)
+                                             :block (definition-block-v2 payload)
+                                             :identity-version 2
+                                             :payload payload
+                                             :dependency-cids dependencies}])
+                                    (let [{:keys [body dependencies]} (link-dependencies body resolved {})
+                                          interface (interface-block (assoc function :params params) schemas)
+                                          interface-cid (semantic/block-cid interface)
+                                          block (definition-block
+                                                 {:body (canonical-body body)
+                                                  :dependencies dependencies
+                                                  :ir-format ir-format
+                                                  :interface-cid interface-cid
+                                                  :profile-cid profile-cid
+                                                  :hash-contract-cid hash-contract-cid})]
+                                      [name {:name name :cid (semantic/block-cid block) :block block
+                                             :identity-version 1
+                                             :interface-cid interface-cid :interface-block interface
+                                             :dependency-cids dependencies}])))))
                          ready)]
                (recur (vec (remove (set ready) pending))
                       (into resolved (map (fn [[name {:keys [cid]}]] [name cid])) compiled)
@@ -519,6 +770,20 @@
                                             (strongly-connected pending-graph)))]
                (when-not component
                  (fail! :typed-code/unresolvable-recursion {:symbols (mapv str pending)}))
+               ;; A recursive group is a cycle, and a cycle has no CID to link
+               ;; to. Layer 1 answers that with a group block plus member
+               ;; blocks; the sealed payload layer 2 addresses has exactly one
+               ;; slot for dependencies and it holds CIDs. Refusing is the only
+               ;; honest answer available today -- an invented encoding here
+               ;; would be a third answer to `what is this definition`, which
+               ;; is the defect layer 2 exists to close.
+               (when (= 2 identity-version)
+                 (fail! :typed-code/recursive-group-unsupported-under-v2
+                        {:symbols (vec (sort (map str component)))
+                         :identity-version 2
+                         :hint (str "kotoba.typed-definition.v2 seals dependencies as CIDs and "
+                                    "has no representation for a cycle; compile this group under "
+                                    "identity-version 1")}))
                (let [compiled (compile-group component prepared resolved
                                              ir-format profile-cid hash-contract-cid)]
                  (recur (vec (remove component pending))

@@ -16,12 +16,24 @@
 
   The direction recorded in `lang/code-identity.edn :identity-implementations`
   is that typed-code adopts `kotoba.kir.definition-identity` as its hashing
-  core under a versioned migration. That migration is NOT this change: it
-  moves every stored typed-code CID, and whether any are persisted outside
-  tests could not be verified (local stores and kotobase providers are not
-  enumerable). Until it lands, this test is the record: if either side changes
-  so that the two agree, or so that the effect encoding below changes, this
-  suite must be revisited on purpose, not silently.
+  core under a versioned migration. That migration LANDED as identity layer 2
+  on 2026-09-02, and it is opt-in: `typed-code/compile-module` takes
+  `:identity-version 2`, and `kotoba.codebase.typed-code-v2-test` asserts the
+  equality this suite asserts the absence of. See that suite for the other
+  half.
+
+  Layer 1 -- everything asserted below -- is still the DEFAULT, and this suite
+  is still the record of what it does, because layer-1 CIDs are published.
+  Measured 2026-09-02, resolving the UNVERIFIED persistence question this
+  docstring used to carry: kotoba-lang `lang/package-registry.edn`
+  `:registry/definition-cids` names
+  bafyreif7drknz5fumncb5gqdo2jqel7hulxbzwcoohq2gsds2zm26pe6oe; that
+  `kotoba.typed-definition.v1` block is committed at
+  `kotoba-lang/site/{assets,dist}/ipfs/`, sits inside a signed publication
+  record and an ML-DSA attestation, and answers HTTP 200 from
+  kotoba-lang.org and kotoba.cloud. So the two encodings below are not a
+  transitional embarrassment to be deleted -- one of them is live, and if
+  either changes, a signature over bytes other people hold stops verifying.
 
   The second thing pinned here is how each side carries an effect row. The
   compiler emits `[:cap/call <id>]` wire vectors; typed-code stringifies
