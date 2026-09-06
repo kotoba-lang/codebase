@@ -1,7 +1,25 @@
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.12.4"}
-        io.github.kotoba-lang/dag-cbor
-        {:git/url "https://github.com/kotoba-lang/dag-cbor.git"
+        ;; Renamed upstream: kotoba-lang/dag-cbor is kotoba-lang/org-ietf-cbor.
+        ;; The old name resolved through GitHub's redirect alone, and a redirect
+        ;; is not a dependency declaration -- nothing failed, so nothing showed.
+        ;; 58144e81 is the same commit under either name, so every C1 hash this
+        ;; repo has already published is byte-for-byte what it was. The name has
+        ;; to be right anyway, because tools.deps dedupes by the coordinate
+        ;; SYMBOL: a closure reaching this repository under both spellings puts
+        ;; two cbor.core on the classpath, and a semantic-code CID is only an
+        ;; identity if exactly one encoder can produce it.
+        ;;
+        ;; The :git/url is corrected and KEPT. Dropping it, so that
+        ;; io.github.<org>/<name> derives the URL, would make the coordinate and
+        ;; the repository incapable of drifting apart again -- but measured, it
+        ;; also removes this dependency from what
+        ;; scripts/verify-repository-roles.cljs can see: its production-deps
+        ;; keeps only coordinates carrying a :git/url. The :depends-on list in
+        ;; resources/repository-rules.edn, which that check asserts equal to the
+        ;; production deps, is renamed in this commit for the same reason.
+        io.github.kotoba-lang/org-ietf-cbor
+        {:git/url "https://github.com/kotoba-lang/org-ietf-cbor.git"
          :git/sha "58144e81ccdf7a82367085c66ea21ca84a1a7ddb"}
         io.github.kotoba-lang/io-multiformats
         {:git/url "https://github.com/kotoba-lang/io-multiformats.git"
