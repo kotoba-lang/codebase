@@ -4,7 +4,7 @@
   :tier :t1
   :role :library
   :must-not [:compile :execute-components :grant-runtime-authority]
-  :depends-on ["kotoba-lang/dag-cbor"
+  :depends-on ["kotoba-lang/org-ietf-cbor"
                "kotoba-lang/io-ipld"
                "kotoba-lang/io-multiformats"
                ;; Each of the three below is required by a namespace under
