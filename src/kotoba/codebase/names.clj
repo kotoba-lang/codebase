@@ -6,7 +6,7 @@
   consequence -- an abbreviation must be REJECTED when it is ambiguous rather
   than resolved to whichever candidate sorts first, because the whole point of
   the hash is that it names exactly one thing."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kotoba.codebase.index :as index]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.store :as store]))
@@ -96,9 +96,9 @@
 (defn search
   "Names in NAMESPACE containing QUERY, with the CID each selects."
   [root namespace query]
-  (let [query (str/lower-case (str query))]
+  (let [query (str/lower (str query))]
     (into (sorted-map)
-          (filter (fn [[name _]] (str/includes? (str/lower-case name) query)))
+          (filter (fn [[name _]] (str/includes? (str/lower name) query)))
           (bindings-of root namespace))))
 
 (defn dependents
