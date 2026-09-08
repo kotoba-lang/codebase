@@ -16,7 +16,7 @@
   `typed-cap-call` dispatcher may be injected by a caller that has a provider
   registry and a policy; without one, a definition that performs a capability
   call traps rather than proceeding."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]

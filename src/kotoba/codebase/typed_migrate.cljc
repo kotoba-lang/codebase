@@ -29,7 +29,7 @@
 
   A definition whose effects were stored as ordinary operation names migrates
   fine: those ARE the sealed vocabulary."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kotoba.codebase.ir :as ir]
             [kotoba.kir.definition-identity :as di]
             [kotoba.codebase.store :as store]

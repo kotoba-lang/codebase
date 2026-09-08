@@ -17,7 +17,7 @@
   Evaluation here is pure by construction: the capability intrinsics are
   rejected rather than dispatched, so a stored definition cannot acquire
   authority merely by being reachable."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [ipld.value :as value]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.semantic-code :as semantic]

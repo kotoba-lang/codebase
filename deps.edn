@@ -1,5 +1,10 @@
 {:paths ["src"]
- :deps {org.clojure/clojure {:mvn/version "1.12.4"}
+ :deps {
+        ;; kotoba.lang.text, not clojure.string. Pinned as an explicit floor:
+        ;; tools.deps takes the NEWEST sha it is shown, so without a floor here
+        ;; this repo silently rides whatever a sibling happens to name.
+        io.github.kotoba-lang/text {:git/sha "73bdb13ae7a3d004b44bca08be03a3191157a38f"}
+       org.clojure/clojure {:mvn/version "1.12.4"}
         ;; Renamed upstream: kotoba-lang/dag-cbor is kotoba-lang/org-ietf-cbor.
         ;; The old name resolved through GitHub's redirect alone, and a redirect
         ;; is not a dependency declaration -- nothing failed, so nothing showed.
