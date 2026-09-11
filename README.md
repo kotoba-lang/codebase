@@ -102,6 +102,6 @@ authority, and result evidence therefore remain three distinct hashes.
 ## Test
 
 ```sh
-clojure -M:test
-clojure -M:lint
+kbb -M:test
+kbb -M:lint
 ```
