@@ -37,7 +37,7 @@ language coverage is the compiler's rather than a hand-maintained subset.
 frozen vectors, JVM/ClojureScript byte-identical) as the definition-CID
 implementation, and `typed-code` does not call it: it hashes its own canonical
 form, so the same definition gets a different CID from each (measured
-2026-09-02, pinned by `test/kotoba/codebase/typed_code_identity_divergence_test.clj`).
+2026-09-02, pinned by `test/kotoba/codebase/typed_code_identity_divergence_test.cljk`).
 The recorded direction (`lang/code-identity.edn :identity-implementations`) is
 that `typed-code` adopts `kotoba.kir.definition-identity` as its hashing core
 under a versioned migration; that migration moves stored typed-code CIDs and
