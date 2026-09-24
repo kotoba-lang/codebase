@@ -41,7 +41,7 @@
   row is sealed as the string \"[:cap/call 9]\"; kotoba-kir refuses the wire
   row and requires the named-operation keyword row, reachable only through
   `effect-row-from-hir` with the catalog's id->name."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.typed-code :as typed]
             [kotoba.kir.definition-identity :as di]))
 

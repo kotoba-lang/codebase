@@ -1,5 +1,5 @@
 (ns kotoba.codebase.render-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.names :as names]
             [kotoba.codebase.render :as render]

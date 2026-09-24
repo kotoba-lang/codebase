@@ -1,6 +1,6 @@
 (ns kotoba.codebase.semantic-code-test
   (:require [cbor.core :as cbor]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]))
 
 (defn compile-one [form]
