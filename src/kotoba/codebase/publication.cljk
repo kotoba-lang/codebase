@@ -32,7 +32,7 @@
   explicit new DID. There is no revocation broadcast, because there is nobody
   to broadcast to that a follower is obliged to believe."
   (:require [cbor.core :as cbor]
-            [clojure.edn :as edn]
+            [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
             [ed25519.core :as ed]
             [kotoba.codebase.ir :as ir]
