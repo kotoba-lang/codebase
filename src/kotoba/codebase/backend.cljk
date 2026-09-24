@@ -30,7 +30,7 @@
   `-put-bytes!` returns `:written`, `:identical` or `:conflict` rather than
   throwing, because the error a conflict deserves differs per space and those
   names are part of `store`'s public contract."
-  #?(:clj (:require [clojure.edn :as edn]
+  #?(:clj (:require [kotoba.lang.edn :as edn]
                     [clojure.java.io :as io]))
   #?(:clj (:import [java.nio.channels FileChannel]
                    [java.nio.charset StandardCharsets]
