@@ -3,7 +3,7 @@
 
   Each test states an attack the model must survive, because a trust model that
   is only exercised on the happy path has not been tested at all."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [ed25519.core :as ed]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.publication :as publication]
@@ -11,8 +11,8 @@
             [kotoba.codebase.store :as store]))
 
 (defn- temp-store []
-  (.toFile (java.nio.file.Files/createTempDirectory
-            "kotoba-publication-" (make-array java.nio.file.attribute.FileAttribute 0))))
+  (kio/temp-dir
+            "kotoba-publication-"))
 
 (defn- delete-tree [root]
   (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f)))

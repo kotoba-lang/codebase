@@ -1,13 +1,13 @@
 (ns kotoba.codebase.diff-test
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.diff :as diff]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.store :as store]))
 
 (defn- temp-store []
-  (.toFile (java.nio.file.Files/createTempDirectory
-            "kotoba-diff-" (make-array java.nio.file.attribute.FileAttribute 0))))
+  (kio/temp-dir
+            "kotoba-diff-"))
 
 (defn- delete-tree [root]
   (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f)))

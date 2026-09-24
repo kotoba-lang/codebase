@@ -4,7 +4,7 @@
   `evaluator-test`'s job — but that the seam inga calls is TOTAL, DETERMINISTIC
   and bounded to the actor's own state, because those are the three properties
   a consensus machine cannot check for itself."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [ipld.core :as ipld]
             [ipld.value :as value]
             [kotoba.codebase.actor :as actor]
@@ -12,9 +12,8 @@
             [kotoba.codebase.store :as store]))
 
 (defn- temp-store []
-  (.toFile (java.nio.file.Files/createTempDirectory
-            "kotoba-actor-"
-            (make-array java.nio.file.attribute.FileAttribute 0))))
+  (kio/temp-dir
+            "kotoba-actor-"))
 
 (defn- delete-tree [root]
   (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f)))
