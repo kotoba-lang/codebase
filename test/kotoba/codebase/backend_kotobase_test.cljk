@@ -6,7 +6,7 @@
   through the same public API works over a backend with no directory at all.
   If any of `store`'s callers had kept reaching for a path, this suite would
   not run."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.backend :as backend]
             [kotoba.codebase.backend.kotobase :as kotobase-backend]
             [kotoba.codebase.evaluator :as evaluator]
@@ -111,8 +111,8 @@
 
 (deftest a-path-still-means-the-filesystem-layout
   (testing "coercion keeps every existing caller working unchanged"
-    (let [dir (.toFile (java.nio.file.Files/createTempDirectory
-                        "kotoba-backend-" (make-array java.nio.file.attribute.FileAttribute 0)))]
+    (let [dir (kio/temp-dir
+                        "kotoba-backend-")]
       (try
         (is (not (backend/store? dir)) "a path is not yet a store")
         (is (backend/store? (backend/coerce dir)) "coercion makes it one")

@@ -1,14 +1,13 @@
 (ns kotoba.codebase.value-runtime-abi-test
-  (:require [kotoba.test :refer [deftest is]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is]]
             [ipld.value :as value]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.value-runtime :as runtime]
             [kotoba.codebase.value-runtime-abi :as abi]))
 
 (defn- with-runtime [f]
-  (let [root (.toFile (java.nio.file.Files/createTempDirectory
-                       "kotoba-value-abi-"
-                       (make-array java.nio.file.attribute.FileAttribute 0)))]
+  (let [root (kio/temp-dir
+                       "kotoba-value-abi-")]
     (try
       (store/initialize! root)
       (f root (runtime/create root))

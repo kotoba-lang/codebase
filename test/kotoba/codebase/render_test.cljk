@@ -1,14 +1,13 @@
 (ns kotoba.codebase.render-test
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.names :as names]
             [kotoba.codebase.render :as render]
             [kotoba.codebase.store :as store]))
 
 (defn- temp-store []
-  (.toFile (java.nio.file.Files/createTempDirectory
-            "kotoba-render-"
-            (make-array java.nio.file.attribute.FileAttribute 0))))
+  (kio/temp-dir
+            "kotoba-render-"))
 
 (defn- delete-tree [root]
   (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f)))

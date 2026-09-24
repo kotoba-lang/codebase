@@ -31,7 +31,7 @@
   layout, not of content addressing, and pretending otherwise would make
   `block-cids` silently return nothing on a remote store — a wrong answer being
   worse than a refused one."
-  (:require [kotoba.codebase.backend :as backend]
+  (:require [kotoba.bytes :as kbytes] [kotoba.codebase.backend :as backend]
             [kotobase.storage.core :as storage]
             [multiformats.core :as mf]))
 
@@ -58,7 +58,7 @@
 (defrecord KotobaseStore [storage]
   backend/ICodebaseStore
   (-initialize! [_]
-    (let [marker (.getBytes ^String marker-schema "UTF-8")
+    (let [marker (kbytes/utf8-bytes ^String marker-schema)
           cid (put-block-bytes! storage marker)
           name (ref-name :marker nil)]
       (when-not (current-ref-cid storage name)
@@ -105,14 +105,14 @@
   (-read-head [_ namespace]
     (when-let [cid (current-ref-cid storage (ref-name :head namespace))]
       (when-let [bytes (block-present storage cid)]
-        (String. ^bytes bytes "UTF-8"))))
+        (kbytes/utf8-string ^bytes bytes))))
 
   (-swap-head! [this namespace expected next-cid]
     (let [name (ref-name :head namespace)
           actual (backend/-read-head this namespace)]
       (if-not (= expected actual)
         {:ok? false :actual actual}
-        (let [pointer (put-block-bytes! storage (.getBytes ^String next-cid "UTF-8"))
+        (let [pointer (put-block-bytes! storage (kbytes/utf8-bytes ^String next-cid))
               result (storage/-compare-and-set-ref!
                       storage name (current-ref-cid storage name) pointer)]
           (if (:published? result)

@@ -1,14 +1,13 @@
 (ns kotoba.codebase.value-runtime-test
-  (:require [kotoba.test :refer [deftest is]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is]]
             [ipld.value :as value]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.value-runtime :as runtime]
             [multiformats.core :as mf]))
 
 (defn- temp-store []
-  (.toFile (java.nio.file.Files/createTempDirectory
-            "kotoba-value-runtime-"
-            (make-array java.nio.file.attribute.FileAttribute 0))))
+  (kio/temp-dir
+            "kotoba-value-runtime-"))
 
 (defn- problem-of [f]
   (try (f) nil

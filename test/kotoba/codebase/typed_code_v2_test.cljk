@@ -15,7 +15,7 @@
   committed at `site/{assets,dist}/ipfs/`, sits inside a signed publication
   record and an ML-DSA attestation, and answers 200 from kotoba-lang.org and
   kotoba.cloud."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.typed-code :as typed]
@@ -24,8 +24,8 @@
             [kotoba.kir.definition-identity :as di]))
 
 (defn- temp-store []
-  (.toFile (java.nio.file.Files/createTempDirectory
-            "kotoba-typed-v2-" (make-array java.nio.file.attribute.FileAttribute 0))))
+  (kio/temp-dir
+            "kotoba-typed-v2-"))
 
 (defn- delete-tree [root]
   (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f)))

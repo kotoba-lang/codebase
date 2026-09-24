@@ -31,16 +31,15 @@
   Revocation is `retire!`: the pin is removed and re-following requires an
   explicit new DID. There is no revocation broadcast, because there is nobody
   to broadcast to that a follower is obliged to believe."
-  (:require [cbor.core :as cbor]
+  (:require [kotoba.bytes :as kbytes] [cbor.core :as cbor]
             [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
             [ed25519.core :as ed]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store])
-  (:import [java.nio.charset StandardCharsets]
-           [java.nio.file Files StandardCopyOption]
-           [java.util Base64]))
+  (:import
+           [java.nio.file Files StandardCopyOption]))
 
 (def schema "kotoba.namespace-head.v1")
 
@@ -48,10 +47,10 @@
   (throw (ex-info (name problem) (assoc data :problem problem))))
 
 (defn- encode-base64 [^bytes bytes]
-  (.encodeToString (Base64/getEncoder) bytes))
+  (kbytes/base64-encode bytes))
 
 (defn- decode-base64 ^bytes [^String text]
-  (.decode (Base64/getDecoder) text))
+  (kbytes/base64-decode-bytes text))
 
 ;; ---------------------------------------------------------------------------
 ;; Records
@@ -141,8 +140,8 @@
 
 (defn- follow-file [root namespace]
   (io/file root "follows"
-           (str (.encodeToString (.withoutPadding (Base64/getUrlEncoder))
-                                 (.getBytes ^String namespace StandardCharsets/UTF_8))
+           (str (kbytes/base64url-encode
+                                 (kbytes/utf8-bytes ^String namespace) {:pad? false})
                 ".edn")))
 
 (defn following
@@ -158,7 +157,7 @@
     (let [tmp (Files/createTempFile (.toPath (.getParentFile target)) "follow-" ".tmp"
                                     (make-array java.nio.file.attribute.FileAttribute 0))]
       (try
-        (Files/write tmp (.getBytes (pr-str state) StandardCharsets/UTF_8)
+        (Files/write tmp (kbytes/utf8-bytes (pr-str state))
                      (make-array java.nio.file.OpenOption 0))
         (Files/move tmp (.toPath target)
                     (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE
