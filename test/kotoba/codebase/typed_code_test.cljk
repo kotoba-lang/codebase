@@ -5,7 +5,7 @@
   that IS this namespace's contract -- it consumes the IR and never parses
   source. The source-to-KIR half is covered where both the compiler and the
   codebase are on the classpath."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.render :as render]
             [kotoba.codebase.store :as store]

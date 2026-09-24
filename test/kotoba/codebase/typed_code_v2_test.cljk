@@ -15,7 +15,7 @@
   committed at `site/{assets,dist}/ipfs/`, sits inside a signed publication
   record and an ML-DSA attestation, and answers 200 from kotoba-lang.org and
   kotoba.cloud."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.typed-code :as typed]

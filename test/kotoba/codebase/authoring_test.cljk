@@ -1,5 +1,5 @@
 (ns kotoba.codebase.authoring-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.store :as store]))

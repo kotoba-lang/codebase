@@ -1,5 +1,5 @@
 (ns kotoba.codebase.diff-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.diff :as diff]
             [kotoba.codebase.evaluator :as evaluator]

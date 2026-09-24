@@ -1,6 +1,6 @@
 (ns kotoba.codebase.fetch-test
   (:require [cbor.core :as cbor]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.fetch :as fetch]

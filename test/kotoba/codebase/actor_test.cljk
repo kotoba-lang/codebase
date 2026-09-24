@@ -4,7 +4,7 @@
   `evaluator-test`'s job — but that the seam inga calls is TOTAL, DETERMINISTIC
   and bounded to the actor's own state, because those are the three properties
   a consensus machine cannot check for itself."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [ipld.core :as ipld]
             [ipld.value :as value]
             [kotoba.codebase.actor :as actor]

@@ -1,5 +1,5 @@
 (ns kotoba.codebase.store-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as codebase]))
 

@@ -5,7 +5,7 @@
   to believe. The store is a value since ADR-2608580000 S1, so the honest form
   of the claim is available: put a counter in front of a real backend and say
   what the number IS."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.backend :as backend]
             [kotoba.codebase.backend.kotobase :as kotobase-backend]
             [kotoba.codebase.index :as index]

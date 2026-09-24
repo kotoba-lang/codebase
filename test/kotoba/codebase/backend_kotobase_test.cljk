@@ -6,7 +6,7 @@
   through the same public API works over a backend with no directory at all.
   If any of `store`'s callers had kept reaching for a path, this suite would
   not run."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.backend :as backend]
             [kotoba.codebase.backend.kotobase :as kotobase-backend]
             [kotoba.codebase.evaluator :as evaluator]

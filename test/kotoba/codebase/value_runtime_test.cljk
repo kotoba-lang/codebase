@@ -1,5 +1,5 @@
 (ns kotoba.codebase.value-runtime-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [ipld.value :as value]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.value-runtime :as runtime]

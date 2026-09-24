@@ -3,7 +3,7 @@
 
   Each test states an attack the model must survive, because a trust model that
   is only exercised on the happy path has not been tested at all."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [ed25519.core :as ed]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.publication :as publication]
