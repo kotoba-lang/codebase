@@ -1,5 +1,5 @@
 (ns kotoba.codebase.fetch-test
-  (:require [kotoba.io :as kio] [cbor.core :as cbor]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [cbor.core :as cbor]
             [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
@@ -19,7 +19,7 @@
   [remote]
   (fn [cid]
     (try (cbor/encode (store/get-block remote cid))
-         (catch clojure.lang.ExceptionInfo _ nil))))
+         (catch kerror/ExceptionInfo _ nil))))
 
 (deftest hydrates-a-closure-from-a-remote-source-and-runs-it
   (let [remote (temp-store) local (temp-store)]
@@ -47,7 +47,7 @@
             lying (fn [_] (cbor/encode {"schema" "not-what-you-asked-for"}))]
         (is (= :codebase/fetched-cid-mismatch
                (:problem (ex-data (try (fetch/hydrate! local [cid] {:fetch-block lying})
-                                       (catch clojure.lang.ExceptionInfo e e)))))))
+                                       (catch kerror/ExceptionInfo e e)))))))
       (finally (delete-tree remote) (delete-tree local)))))
 
 (deftest reports-what-the-source-did-not-have
@@ -69,7 +69,7 @@
         (testing "an incomplete closure fails closed at evaluation, not silently"
           (is (= :codebase/block-not-found
                  (:problem (ex-data (try (evaluator/invoke local cid [3])
-                                         (catch clojure.lang.ExceptionInfo e e))))))))
+                                         (catch kerror/ExceptionInfo e e))))))))
       (finally (delete-tree remote) (delete-tree local)))))
 
 (deftest bounds-the-number-of-blocks-one-request-can-pull
@@ -86,7 +86,7 @@
                (:problem (ex-data (try (fetch/hydrate! local [cid]
                                                        {:fetch-block (serving remote)
                                                         :max-blocks 1})
-                                       (catch clojure.lang.ExceptionInfo e e)))))))
+                                       (catch kerror/ExceptionInfo e e)))))))
       (finally (delete-tree remote) (delete-tree local)))))
 
 (deftest hydrating-from-a-namespace-commit-brings-the-whole-namespace
@@ -122,7 +122,7 @@
         (let [source (fn [cid]
                        (or (store/get-artifact remote cid)
                            (try (cbor/encode (store/get-block remote cid))
-                                (catch clojure.lang.ExceptionInfo _ nil))))
+                                (catch kerror/ExceptionInfo _ nil))))
               result (fetch/hydrate! local [root-cid] {:fetch-block source})]
           (is (:complete? result))
           (is (= (seq wasm) (seq (store/get-artifact local artifact))))))

@@ -10,7 +10,7 @@
   This first slice accepts non-recursive terms.  A dependency-order fixed point
   makes ordinary forward references deterministic; a remaining local cycle is
   rejected closed until the recursive-group/SCC codec is implemented."
-  (:require [cbor.core :as cbor]
+  (:require [kotoba.bytes :as kbytes] [cbor.core :as cbor]
             [ipld.value :as value]
             [multiformats.core :as mf]))
 
@@ -313,7 +313,7 @@
   [source]
   (mf/cidv1-raw
    (if (string? source)
-     #?(:clj (.getBytes ^String source "UTF-8")
+     #?(:clj (kbytes/utf8-bytes ^String source)
         :cljs (.encode (js/TextEncoder.) source))
      source)))
 
@@ -496,8 +496,7 @@
                       {:definition definition :block block :cid cid
                        :type-cid (:cid type) :type-block (:block type)
                        :dependency-cids (vec (sort @deps))})
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs :default) e
+                    (catch :default e
                       (if (= :semantic/dependency-not-ready (:problem (ex-data e)))
                         {:definition definition :pending? true}
                         (throw e)))))

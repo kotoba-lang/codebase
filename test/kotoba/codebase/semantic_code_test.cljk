@@ -1,5 +1,5 @@
 (ns kotoba.codebase.semantic-code-test
-  (:require [cbor.core :as cbor]
+  (:require [kotoba.lang.error :as kerror] [cbor.core :as cbor]
             [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]))
 
@@ -71,7 +71,7 @@
   (let [error (try
                 (semantic/compile-definitions '[(defn f [x] (mystery x))])
                 nil
-                (catch clojure.lang.ExceptionInfo e e))]
+                (catch kerror/ExceptionInfo e e))]
     (is (= :semantic/unresolved-reference (:problem (ex-data error))))))
 
 (deftest recursive-groups-are-canonical
@@ -105,7 +105,7 @@
   (let [error (try
                 (compile-one '(defn ^{:unregistered/meaning true} f [x] x))
                 nil
-                (catch clojure.lang.ExceptionInfo e e))]
+                (catch kerror/ExceptionInfo e e))]
     (is (= :semantic/unknown-metadata (:problem (ex-data error))))))
 
 (deftest user-macros-fail-closed-until-a-deterministic-expansion-contract-exists
@@ -114,7 +114,7 @@
                  '[(defmacro ambient [] (System/currentTimeMillis))
                    (defn main [] (ambient))])
                 nil
-                (catch clojure.lang.ExceptionInfo e e))]
+                (catch kerror/ExceptionInfo e e))]
     (is (= :semantic/unsupported-definition-kind (:problem (ex-data error))))))
 
 (deftest namespace-renames-do-not-change-definition-cids
@@ -159,13 +159,13 @@
           (ex-data
            (try
              (semantic/compile-definitions '[(defn f [x] x) (defn f [y] y)])
-             (catch clojure.lang.ExceptionInfo e e))))))
+             (catch kerror/ExceptionInfo e e))))))
   (is (= :semantic/unsupported-definition-kind
          (:problem
           (ex-data
            (try
              (semantic/compile-definitions '[(defrecord Ambient [value])])
-             (catch clojure.lang.ExceptionInfo e e)))))))
+             (catch kerror/ExceptionInfo e e)))))))
 
 ;; -- VC4: literals delegate to kotoba.value.v1 -------------------------------
 ;; ADR-kotoba-canonical-value-codec. The literal vocabulary is no longer this
@@ -193,7 +193,7 @@
       "1.0 and 1 are different values, not one number")
   (testing "non-finite literals stay rejected, by name"
     (let [data (try (compile-one (list 'def 'bad (/ 0.0 0.0))) nil
-                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                    (catch kerror/ExceptionInfo e (ex-data e)))]
       (is (= :semantic/unsupported-literal (:problem data)))
       (is (= :value/float-nan (:codec-problem data))))))
 
@@ -238,7 +238,7 @@
 
 (deftest unadmitted-literals-still-fail-closed-with-the-semantic-problem-key
   (let [data (try (compile-one (list 'def 'bad (java.util.Date.))) nil
-                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                  (catch kerror/ExceptionInfo e (ex-data e)))]
     (is (= :semantic/unsupported-literal (:problem data))
         "callers keep the semantic problem key")
     (is (= :value/unsupported-type (:codec-problem data))

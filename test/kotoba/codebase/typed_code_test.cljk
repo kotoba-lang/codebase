@@ -5,7 +5,7 @@
   that IS this namespace's contract -- it consumes the IR and never parses
   source. The source-to-KIR half is covered where both the compiler and the
   codebase are on the classpath."
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.render :as render]
             [kotoba.codebase.store :as store]
@@ -105,7 +105,7 @@
                                   (kir [{:name 'f :params '[x] :param-types [:i64]
                                          :result :i64 :effects #{}
                                          :body '(let [q x] [:ref q])}]))
-                                 (catch clojure.lang.ExceptionInfo e e)))))))
+                                 (catch kerror/ExceptionInfo e e)))))))
 
 (deftest runs-a-hydrated-closure-through-the-kir-oracle
   (with-store
@@ -157,7 +157,7 @@
         (store/put-block! root cid block)
         (is (= :codebase/block-not-found
                (:problem (ex-data (try (typed-eval/invoke root cid [3])
-                                       (catch clojure.lang.ExceptionInfo e e))))))))))
+                                       (catch kerror/ExceptionInfo e e))))))))))
 
 (deftest a-capability-call-without-a-dispatcher-is-denied-not-skipped
   (with-store
@@ -168,7 +168,7 @@
                                :effects #{:log/write}
                                :body '(typed-cap-call 9 :i64 :i64 x)}])))
             outcome (try (typed-eval/invoke root (get cids "emit") [1])
-                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                         (catch kerror/ExceptionInfo e (ex-data e)))]
         (is (= :capability-denied (or (:trap outcome) (:kotoba.trap/kind outcome)
                                       (:problem outcome) outcome))
             (str "expected a denial, got " (pr-str outcome)))))))
@@ -223,7 +223,7 @@
                (:problem
                 (ex-data
                  (try (typed-eval/admit root cid)
-                      (catch clojure.lang.ExceptionInfo e e))))))
+                      (catch kerror/ExceptionInfo e e))))))
         (let [admission (typed-eval/admit root cid
                                           {:allowed-effects #{:log/write}})]
           (is (= 7 (:value
@@ -244,7 +244,7 @@
                (:problem
                 (ex-data
                  (try (typed-eval/invoke-admitted root (assoc shallow :fuel 100) [2])
-                      (catch clojure.lang.ExceptionInfo e e))))))))))
+                      (catch kerror/ExceptionInfo e e))))))))))
 
 (deftest an-update-propagates-across-typed-definitions-too
   (with-store

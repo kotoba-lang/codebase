@@ -1,5 +1,5 @@
 (ns kotoba.codebase.evaluator-test
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]))
@@ -87,7 +87,7 @@
                                      )]
         (is (= :codebase/effect-not-permitted
                (:problem (ex-data (try (evaluator/invoke root (get cids "peek-cap") [])
-                                       (catch clojure.lang.ExceptionInfo e e)))))))
+                                       (catch kerror/ExceptionInfo e e)))))))
       (finally (delete-tree root)))))
 
 (deftest bounds-runaway-recursion-before-the-host-stack
@@ -98,7 +98,7 @@
                   root '[(defn forever [n] (forever (inc n)))])]
         (is (= :codebase/call-depth-exceeded
                (:problem (ex-data (try (evaluator/invoke root (get cids "forever") [0])
-                                       (catch clojure.lang.ExceptionInfo e e)))))))
+                                       (catch kerror/ExceptionInfo e e)))))))
       (finally (delete-tree root)))))
 
 (deftest bounds-total-work-with-fuel
@@ -110,7 +110,7 @@
         (is (= :codebase/fuel-exhausted
                (:problem (ex-data (try (evaluator/invoke root (get cids "countdown") [100]
                                                          {:fuel 50})
-                                       (catch clojure.lang.ExceptionInfo e e)))))))
+                                       (catch kerror/ExceptionInfo e e)))))))
       (finally (delete-tree root)))))
 
 (deftest a-missing-dependency-fails-closed
@@ -127,7 +127,7 @@
         (store/put-block! root cid block)
         (is (= :codebase/block-not-found
                (:problem (ex-data (try (evaluator/invoke root cid [2])
-                                       (catch clojure.lang.ExceptionInfo e e)))))))
+                                       (catch kerror/ExceptionInfo e e)))))))
       (finally (delete-tree root)))))
 
 (deftest reports-fuel-left-after-the-call-not-before-it

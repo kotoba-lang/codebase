@@ -4,7 +4,7 @@
   `evaluator-test`'s job — but that the seam inga calls is TOTAL, DETERMINISTIC
   and bounded to the actor's own state, because those are the three properties
   a consensus machine cannot check for itself."
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [ipld.core :as ipld]
             [ipld.value :as value]
             [kotoba.codebase.actor :as actor]
@@ -123,13 +123,13 @@
                       {:codebase root
                        :get-fn (fn [_] (value/encode-value 8))   ; wrong bytes
                        :put! (fn [_ _])})]
-          (is (thrown? clojure.lang.ExceptionInfo
+          (is (thrown? kerror/ExceptionInfo
                        (invoke {:address "alice" :caller "alice"
                                 :code (get cids "credit") :state honest
                                 :method "credit" :args []}))))
         (finally (delete-tree root))))))
 
 (deftest the-seam-refuses-to-be-built-without-its-store
-  (is (thrown? clojure.lang.ExceptionInfo (actor/invoke-fn {:codebase nil})))
-  (is (thrown? clojure.lang.ExceptionInfo
+  (is (thrown? kerror/ExceptionInfo (actor/invoke-fn {:codebase nil})))
+  (is (thrown? kerror/ExceptionInfo
                (actor/invoke-fn {:codebase "x" :get-fn (fn [_])}))))

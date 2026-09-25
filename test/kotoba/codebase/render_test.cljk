@@ -1,5 +1,5 @@
 (ns kotoba.codebase.render-test
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.names :as names]
             [kotoba.codebase.render :as render]
@@ -75,7 +75,7 @@
       (testing "an abbreviation too short to mean one definition is refused"
         (is (= :codebase/hash-abbreviation-too-short
                (:problem (ex-data (try (names/resolve-token root "scratch" "#bafy")
-                                       (catch clojure.lang.ExceptionInfo e e)))))))))))
+                                       (catch kerror/ExceptionInfo e e)))))))))))
 
 (deftest reports-dependents-before-a-change-is-made
   (with-store

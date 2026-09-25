@@ -1,5 +1,5 @@
 (ns kotoba.codebase.diff-test
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.diff :as diff]
             [kotoba.codebase.evaluator :as evaluator]
@@ -110,7 +110,7 @@
                                                                  {"f" :delete}))
                               "f"))))
         (testing "and a chosen CID must be one this store actually holds"
-          (is (thrown? clojure.lang.ExceptionInfo
+          (is (thrown? kerror/ExceptionInfo
                        (diff/resolve-conflicts
                         root base left right
                         {"f" "bafyreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}))))))))
