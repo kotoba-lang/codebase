@@ -1,5 +1,5 @@
 (ns kotoba.codebase.value-runtime-test
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is]]
             [ipld.value :as value]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.value-runtime :as runtime]
@@ -11,7 +11,7 @@
 
 (defn- problem-of [f]
   (try (f) nil
-       (catch clojure.lang.ExceptionInfo e (:problem (ex-data e)))))
+       (catch kerror/ExceptionInfo e (:problem (ex-data e)))))
 
 (defn- with-store [f]
   (let [root (temp-store)]

@@ -1,5 +1,5 @@
 (ns kotoba.codebase.authoring-test
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.authoring :as authoring]
             [kotoba.codebase.evaluator :as evaluator]
             [kotoba.codebase.store :as store]))
@@ -96,7 +96,7 @@
           "planning must not advance the head")
       (is (= :codebase/block-not-found
              (:problem (ex-data (try (store/get-block root (get-in planned [:definitions "double" :cid]))
-                                     (catch clojure.lang.ExceptionInfo e e))))))
+                                     (catch kerror/ExceptionInfo e e))))))
       "planning must not persist blocks"))))
 
 (deftest a-stale-plan-cannot-overwrite-a-concurrent-commit
@@ -107,4 +107,4 @@
       (authoring/update-namespace! root "scratch" '[(defn other [x] (+ x 1))])
       (is (= :codebase/head-conflict
              (:problem (ex-data (try (authoring/commit! root stale)
-                                     (catch clojure.lang.ExceptionInfo e e))))))))))
+                                     (catch kerror/ExceptionInfo e e))))))))))

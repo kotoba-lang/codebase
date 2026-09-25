@@ -6,7 +6,7 @@
   through the same public API works over a backend with no directory at all.
   If any of `store`'s callers had kept reaching for a path, this suite would
   not run."
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.backend :as backend]
             [kotoba.codebase.backend.kotobase :as kotobase-backend]
             [kotoba.codebase.evaluator :as evaluator]
@@ -33,7 +33,7 @@
   (let [root (memory-codebase)]
     (is (= :codebase/not-initialized
            (:problem (ex-data (try (store/block-cids root)
-                                   (catch clojure.lang.ExceptionInfo e e))))))))
+                                   (catch kerror/ExceptionInfo e e))))))))
 
 (deftest evaluates-a-definition-from-its-cid-with-no-filesystem
   (let [root (memory-codebase)]
@@ -54,7 +54,7 @@
         (store/put-block! root cid block)
         (is (= :codebase/cid-mismatch
                (:problem (ex-data (try (store/put-block! root cid {"schema" "lie"})
-                                       (catch clojure.lang.ExceptionInfo e e))))))))))
+                                       (catch kerror/ExceptionInfo e e))))))))))
 
 (defn- unrelated-cid []
   ;; A well-formed CID that is not this namespace's head. It has to be real:
@@ -74,7 +74,7 @@
       (is (= :codebase/head-conflict
              (:problem (ex-data (try (store/commit-namespace!
                                       root "demo" {"f" cid} (unrelated-cid))
-                                     (catch clojure.lang.ExceptionInfo e e)))))))
+                                     (catch kerror/ExceptionInfo e e)))))))
     (testing "and a real commit moves it"
       (let [commit (store/commit-namespace! root "demo" {"f" cid} nil)]
         (is (= (:cid commit) (store/head root "demo")))
@@ -82,7 +82,7 @@
           (is (= :codebase/head-conflict
                  (:problem (ex-data (try (store/commit-namespace!
                                           root "demo" {"f" cid} nil)
-                                         (catch clojure.lang.ExceptionInfo e e)))))))))))
+                                         (catch kerror/ExceptionInfo e e)))))))))))
 
 (deftest enumeration-is-refused-rather-than-answered-wrong
   (testing "a store with no directory to read must not report an empty codebase"
@@ -90,7 +90,7 @@
       (store/initialize! root)
       (is (= :codebase/enumeration-unsupported
              (:problem (ex-data (try (store/block-cids root)
-                                     (catch clojure.lang.ExceptionInfo e e)))))))))
+                                     (catch kerror/ExceptionInfo e e)))))))))
 
 (deftest the-cache-becomes-a-pointer-because-its-key-is-not-its-hash
   (let [root (memory-codebase)
@@ -107,7 +107,7 @@
         (is (= :codebase/cache-conflict
                (:problem (ex-data (try (store/cache-put! root descriptor
                                                          {"artifact" "other"})
-                                       (catch clojure.lang.ExceptionInfo e e))))))))))
+                                       (catch kerror/ExceptionInfo e e))))))))))
 
 (deftest a-path-still-means-the-filesystem-layout
   (testing "coercion keeps every existing caller working unchanged"

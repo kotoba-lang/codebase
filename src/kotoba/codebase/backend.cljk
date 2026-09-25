@@ -33,9 +33,8 @@
   #?(:clj (:require [kotoba.lang.edn :as edn]
                     [clojure.java.io :as io]))
   #?(:clj (:import [java.nio.channels FileChannel]
-                   [java.nio.charset StandardCharsets]
-                   [java.nio.file Files StandardCopyOption StandardOpenOption]
-                   [java.util Base64])))
+                   [java.nio.file Files StandardCopyOption StandardOpenOption]))
+  (:require [kotoba.bytes :as kbytes]))
 
 (def store-schema "kotoba.semantic-codebase-store.v1")
 
@@ -92,8 +91,8 @@
 
    (defn- head-file ^java.io.File [root namespace]
      (file root "heads"
-           (str (.encodeToString (.withoutPadding (Base64/getUrlEncoder))
-                                 (.getBytes ^String namespace StandardCharsets/UTF_8))
+           (str (kbytes/base64url-encode
+                                 (kbytes/utf8-bytes ^String namespace) {:pad? false})
                 ".head")))
 
    (defn- write-atomically! [^java.io.File target ^bytes value]
@@ -172,7 +171,7 @@
                (let [tmp (Files/createTempFile (.getParent target) "head-" ".tmp"
                                                (make-array java.nio.file.attribute.FileAttribute 0))]
                  (try
-                   (Files/write tmp (.getBytes (pr-str next-cid) StandardCharsets/UTF_8)
+                   (Files/write tmp (kbytes/utf8-bytes (pr-str next-cid))
                                 (make-array java.nio.file.OpenOption 0))
                    (Files/move tmp target (into-array StandardCopyOption
                                                       [StandardCopyOption/ATOMIC_MOVE

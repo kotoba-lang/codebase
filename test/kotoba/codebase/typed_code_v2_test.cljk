@@ -15,7 +15,7 @@
   committed at `site/{assets,dist}/ipfs/`, sits inside a signed publication
   record and an ML-DSA attestation, and answers 200 from kotoba-lang.org and
   kotoba.cloud."
-  (:require [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.io :as kio] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.semantic-code :as semantic]
             [kotoba.codebase.store :as store]
             [kotoba.codebase.typed-code :as typed]
@@ -73,11 +73,11 @@
 
 (defn- problem-of [f]
   (try (f) ::no-refusal
-       (catch clojure.lang.ExceptionInfo e (:problem (ex-data e)))))
+       (catch kerror/ExceptionInfo e (:problem (ex-data e)))))
 
 (defn- message-of [f]
   (try (f) ::no-refusal
-       (catch clojure.lang.ExceptionInfo e (.getMessage e))))
+       (catch kerror/ExceptionInfo e (.getMessage e))))
 
 ;; ---------------------------------------------------------------------------
 ;; The identity itself

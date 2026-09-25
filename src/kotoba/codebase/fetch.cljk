@@ -19,7 +19,7 @@
   Traversal is bounded because the links to follow come from the fetched blocks
   themselves: an adversarial DAG must not be able to turn one request into an
   unbounded fetch."
-  (:require [cbor.core :as cbor]
+  (:require [kotoba.lang.error :as kerror] [cbor.core :as cbor]
             [kotoba.codebase.ir :as ir]
             [kotoba.codebase.store :as store]
             [multiformats.core :as mf]))
@@ -92,7 +92,7 @@
               local (if raw?
                       (store/get-artifact root cid)
                       (try (store/get-block root cid)
-                           (catch clojure.lang.ExceptionInfo error
+                           (catch kerror/ExceptionInfo error
                              (if (= :codebase/block-not-found (:problem (ex-data error)))
                                nil
                                (throw error)))))]

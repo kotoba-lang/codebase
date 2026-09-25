@@ -41,7 +41,7 @@
   row is sealed as the string \"[:cap/call 9]\"; kotoba-kir refuses the wire
   row and requires the named-operation keyword row, reachable only through
   `effect-row-from-hir` with the catalog's id->name."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.test :refer [deftest is testing]]
             [kotoba.codebase.typed-code :as typed]
             [kotoba.kir.definition-identity :as di]))
 
@@ -121,7 +121,7 @@
            (:message (di/definition-error (kir-definition emit-fn (:effects emit-fn))))))
     (is (= #{:log/write}
            (di/effect-row-from-hir {:effects (:effects emit-fn)} {:id->name {9 :log/write}})))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+    (is (thrown-with-msg? kerror/ExceptionInfo
                           #"effect row wire id has no catalog name: \[:cap/call 9\]"
                           (di/effect-row-from-hir {:effects (:effects emit-fn)} {:id->name {}}))
         "and never guesses a name for an id the catalog does not have")))
